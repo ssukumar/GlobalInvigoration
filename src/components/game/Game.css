@@ -1,0 +1,45 @@
+.game-container {
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border-radius: 0;
+  box-shadow: none;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.canvas-container {
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: none;
+}
+
+.game-canvas {
+  width: 100vw;
+  height: 100vh;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  cursor: crosshair;
+  background-color: #000000;
+  display: block;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .game-container {
+    margin: 0;
+    padding: 0;
+  }
+  
+  .game-canvas {
+    width: 100vw;
+    height: 100vh;
+  }
+} 
