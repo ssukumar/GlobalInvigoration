@@ -26,9 +26,16 @@
   border: none;
   border-radius: 0;
   box-shadow: none;
-  cursor: crosshair;
   background-color: #000000;
   display: block;
+}
+
+.game-canvas.cursor-visible {
+  cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8" fill="%23FFD700" stroke="%23FFA500" stroke-width="2"/></svg>') 8 8, auto;
+}
+
+.game-canvas.cursor-hidden {
+  cursor: none;
 }
 
 /* Responsive design */

@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { saveSubjectData } from '../firebase/config';
 import './SurveyForm.css';
 
 function SurveyForm({onSubmit}) {
@@ -10,6 +9,7 @@ function SurveyForm({onSubmit}) {
     age: '',
     gender: '',
     handedness: '',
+    mouseDpi: '',
     repeat: '',
     ethnicity: '',
     race: '',
@@ -27,7 +27,7 @@ function SurveyForm({onSubmit}) {
     event.preventDefault();
 
     try {
-      await saveSubjectData(formData);
+      // Do not write to Firebase here. Let App.jsx call initializeParticipant.
       onSubmit(formData);
     } catch (error) {
       console.error('Error handling form submission:', error);
@@ -66,6 +66,10 @@ function SurveyForm({onSubmit}) {
             <option value="right">Right Handed</option>
             <option value="left">Left Handed</option>
           </select>
+        </div>
+        <div>
+          <label>Mouse DPI (optional): </label>
+          <input type="number" name="mouseDpi" value={formData.mouseDpi} onChange={handleInputChange} placeholder="e.g., 800, 1200, 1600" />
         </div>
         <div>
           <label>Have you done our experiments before? </label>

@@ -1,30 +1,11 @@
-import { saveSubjectData, saveTrialData, saveGameData } from './config.js';
+import { saveSubjectData, saveTrialData, saveGameData, database } from './config.js';
+import { addDoc, collection, doc, setDoc } from 'firebase/firestore';
 
-/*
- * RESEARCH DATA COLLECTION SYSTEM
- * 
- * This system collects raw movement data at high frequency (60+ Hz) for research analysis.
- * Instead of calculating metrics in real-time, we collect pure x, y, time data and let
- * researchers perform detailed analysis post-game. This approach:
- * 
- * 1. Maximizes data quality and completeness
- * 2. Eliminates real-time calculation overhead
- * 3. Provides flexibility for different analysis methods
- * 4. Ensures no data loss during gameplay
- * 
- * Data collected per movement:
- * - timestamp: absolute time (ms)
- * - relativeTime: time since trial start (ms) 
- * - x, y: raw pixel coordinates
- * - currentBar: which bar is being hovered ('left', 'right', or null)
- * - screen dimensions for context
- */
-
-// Generate unique participant ID
-export const generateParticipantId = () => {
-  const timestamp = Date.now();
-  const random = Math.random().toString(36).substr(2, 9);
-  return `P_${timestamp}_${random}`;
+// Generate meaningful participant identifier (workerId format)
+export const generateParticipantId = (surveyData) => {
+  const workerId = surveyData?.workerId || 'UNK'; // Worker ID from survey
+  
+  return workerId; // Just use the worker ID (e.g., gb_1, gb_2)
 };
 
 // Collect system and browser information
@@ -75,7 +56,7 @@ const detectOS = () => {
 
 // Initialize participant session
 export const initializeParticipant = async (participantData) => {
-  const participantId = generateParticipantId();
+  const participantId = generateParticipantId(participantData);
   const systemInfo = collectSystemInfo();
   
   const fullParticipantData = {
@@ -96,178 +77,189 @@ export const initializeParticipant = async (participantData) => {
   }
 };
 
-// Save trial data
+// Save trial data (legacy top-level collection)
 export const saveTrialDataPoint = async (trialData) => {
-  const enhancedTrialData = {
-    ...trialData,
-    timestamp: new Date().toISOString(),
-    sessionTimestamp: Date.now()
-  };
-
   try {
-    await saveTrialData(enhancedTrialData);
+    const documentReference = await addDoc(collection(database, 'globalInvigorationTrials'), trialData);
+    return documentReference;
   } catch (error) {
-    console.error('Failed to save trial data:', error);
-  }
-};
-
-// Save complete session data
-export const saveSessionData = async (sessionData) => {
-  const enhancedSessionData = {
-    ...sessionData,
-    sessionEnd: new Date().toISOString(),
-    totalDuration: Date.now() - sessionData.sessionStart
-  };
-
-  try {
-    await saveGameData(enhancedSessionData);
-  } catch (error) {
-    console.error('Failed to save session data:', error);
+    console.error("Error saving trial data: ", error);
     throw error;
   }
 };
 
-// Track mouse movement during bar switching phase 
+// NEW: Save trial to flat trials collection with custom document ID
+export const saveParticipantTrial = async (participantId, trialRow, customDocId) => {
+  try {
+    const trialsColl = collection(database, 'globalInvigorationTrials');
+    const docRef = doc(trialsColl, customDocId);
+    return await setDoc(docRef, trialRow);
+  } catch (error) {
+    console.error('Error saving participant trial:', error);
+    throw error;
+  }
+};
+
+// Raw movement tracking class
 export class RawMovementTracker {
   constructor(participantId) {
     this.participantId = participantId;
     this.isTracking = false;
-    this.currentTrial = null;
-    this.rawMovements = [];
     this.startTime = null;
+    this.endTime = null;
+    this.movements = [];
+    this.trialInfo = null;
     this.barPositions = null;
-    this.screenDimensions = { width: window.innerWidth, height: window.innerHeight };
   }
 
   startTracking(trialInfo, barPositions = null) {
     this.isTracking = true;
-    this.currentTrial = trialInfo;
-    this.rawMovements = [];
     this.startTime = Date.now();
+    this.trialInfo = trialInfo;
     this.barPositions = barPositions;
-    
-    // Update screen dimensions in case of resize
-    this.screenDimensions = { width: window.innerWidth, height: window.innerHeight };
+    this.movements = [];
+    console.log('Raw movement tracking started:', trialInfo);
   }
 
   recordMovement(x, y, currentBar) {
     if (!this.isTracking) return;
-
-    const timestamp = Date.now();
-    const relativeTime = timestamp - this.startTime;
     
-    // Simple raw data point - no calculations, just pure data
-    const movementPoint = {
-      timestamp: timestamp,           // Absolute timestamp
-      relativeTime: relativeTime,     // Time since trial start (ms)
-      x: x,                          // Raw x coordinate (pixels)
-      y: y,                          // Raw y coordinate (pixels)
-      currentBar: currentBar,        // 'left', 'right', or null
-      screenWidth: this.screenDimensions.width,
-      screenHeight: this.screenDimensions.height
+    const movement = {
+      timestamp: Date.now(),
+      relativeTime: Date.now() - this.startTime,
+      x: Math.round(x),
+      y: Math.round(y),
+      currentBar: currentBar
     };
     
-    this.rawMovements.push(movementPoint);
-    
-
+    this.movements.push(movement);
   }
 
   stopTracking() {
     if (!this.isTracking) return null;
-
-    this.isTracking = false;
-    const endTime = Date.now();
-    const duration = endTime - this.startTime;
     
-    // Return raw data only - all analysis will be done post-game
-    return {
+    this.isTracking = false;
+    this.endTime = Date.now();
+    
+    const movementData = {
       participantId: this.participantId,
-      trialInfo: this.currentTrial,
+      trialInfo: this.trialInfo,
       startTime: this.startTime,
-      endTime: endTime,
-      duration: duration,
-      screenDimensions: this.screenDimensions,
+      endTime: this.endTime,
+      duration: this.endTime - this.startTime,
+      screenDimensions: { 
+        width: window.innerWidth, 
+        height: window.innerHeight 
+      },
       barPositions: this.barPositions,
-      rawMovements: this.rawMovements,
-      totalMovements: this.rawMovements.length,
-      samplingRate: this.rawMovements.length / (duration / 1000), // Hz
-      // No calculated metrics - just raw data for research analysis
+      rawMovements: this.movements,
+      totalMovements: this.movements.length,
+      samplingRate: this.movements.length / ((this.endTime - this.startTime) / 1000)
     };
+    
+    console.log('Raw movement tracking stopped:', movementData);
+    return movementData;
   }
 }
 
-// Track hand dynamometer force during reward collection
-
-
-// Track key pressing during reward collection
+// Reward tracking class
 export class RewardTracker {
   constructor(participantId) {
     this.participantId = participantId;
     this.isTracking = false;
-    this.currentTrial = null;
-    this.keyPresses = [];
     this.startTime = null;
+    this.endTime = null;
+    this.trialInfo = null;
     this.expectedSequence = [];
-    this.correctPresses = 0;
-    this.totalPresses = 0;
+    this.keyPresses = [];
   }
 
   startTracking(trialInfo, expectedSequence) {
     this.isTracking = true;
-    this.currentTrial = trialInfo;
-    this.keyPresses = [];
     this.startTime = Date.now();
+    this.trialInfo = trialInfo;
     this.expectedSequence = expectedSequence;
-    this.correctPresses = 0;
-    this.totalPresses = 0;
+    this.keyPresses = [];
+    console.log('Reward tracking started:', { trialInfo, expectedSequence });
   }
 
-  recordKeyPress(key, isCorrect) {
+  recordKeyPress(pressedKey, expectedKey) {
     if (!this.isTracking) return;
-
-    const timestamp = Date.now();
-    this.totalPresses++;
-    if (isCorrect) this.correctPresses++;
-
-    this.keyPresses.push({
-      key,
-      isCorrect,
-      timestamp,
-      relativeTime: timestamp - this.startTime,
-      sequencePosition: this.correctPresses
-    });
+    
+    const keyPress = {
+      timestamp: Date.now(),
+      relativeTime: Date.now() - this.startTime,
+      pressedKey: pressedKey,
+      expectedKey: expectedKey,
+      isCorrect: pressedKey === expectedKey
+    };
+    
+    this.keyPresses.push(keyPress);
   }
 
   stopTracking() {
     if (!this.isTracking) return null;
-
-    this.isTracking = false;
-    const endTime = Date.now();
     
-    // Calculate timing metrics
-    const interKeyIntervals = [];
-    for (let i = 1; i < this.keyPresses.length; i++) {
-      interKeyIntervals.push(
-        this.keyPresses[i].relativeTime - this.keyPresses[i-1].relativeTime
-      );
+    this.isTracking = false;
+    this.endTime = Date.now();
+    
+    const correctPresses = this.keyPresses.filter(press => press.isCorrect).length;
+    const totalPresses = this.keyPresses.length;
+    const accuracy = totalPresses > 0 ? (correctPresses / totalPresses) * 100 : 0;
+    
+    // Calculate average interval between key presses
+    let averageInterKeyInterval = 0;
+    if (this.keyPresses.length > 1) {
+      const intervals = [];
+      for (let i = 1; i < this.keyPresses.length; i++) {
+        const interval = this.keyPresses[i].relativeTime - this.keyPresses[i-1].relativeTime;
+        intervals.push(interval);
+      }
+      averageInterKeyInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
     }
-
-    return {
+    
+    const rewardData = {
       participantId: this.participantId,
-      trialInfo: this.currentTrial,
+      trialInfo: this.trialInfo,
       startTime: this.startTime,
-      endTime,
-      duration: endTime - this.startTime,
+      endTime: this.endTime,
+      duration: this.endTime - this.startTime,
       expectedSequence: this.expectedSequence,
       keyPresses: this.keyPresses,
-      totalPresses: this.totalPresses,
-      correctPresses: this.correctPresses,
-      accuracy: this.correctPresses / this.totalPresses,
-      overshoot: this.totalPresses - this.expectedSequence.length,
-      averageInterKeyInterval: interKeyIntervals.length > 0 ? 
-        interKeyIntervals.reduce((a, b) => a + b, 0) / interKeyIntervals.length : 0,
-      completionTime: this.correctPresses >= this.expectedSequence.length ? 
-        this.keyPresses[this.correctPresses - 1].relativeTime : null
+      totalPresses: totalPresses,
+      correctPresses: correctPresses,
+      accuracy: accuracy,
+      overshoot: Math.max(0, totalPresses - this.expectedSequence.length),
+      averageInterKeyInterval: averageInterKeyInterval,
+      completionTime: totalPresses >= this.expectedSequence.length ? this.endTime - this.startTime : null
     };
+    
+    console.log('Reward tracking stopped:', rewardData);
+    return rewardData;
   }
-} 
+}
+
+// Save session data (legacy top-level collection)
+export const saveSessionData = async (sessionData) => {
+  try {
+    const documentReference = await addDoc(collection(database, 'globalInvigorationSessions'), sessionData);
+    console.log('Session data saved with ID:', documentReference.id);
+    return documentReference;
+  } catch (error) {
+    console.error("Error saving session data: ", error);
+    throw error;
+  }
+};
+
+// NEW: Save session under participant subcollection
+export const saveParticipantSession = async (participantId, sessionData) => {
+  try {
+    const sessionsColl = collection(database, `globalInvigorationSubjects/${participantId}/sessions`);
+    const documentReference = await addDoc(sessionsColl, sessionData);
+    console.log('Participant session saved with ID:', documentReference.id);
+    return documentReference;
+  } catch (error) {
+    console.error('Error saving participant session:', error);
+    throw error;
+  }
+};

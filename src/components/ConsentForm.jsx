@@ -24,7 +24,7 @@ const ConsentForm = ({ onConsent, onDecline }) => {
           />
         </div>
       </div>
-      <hr />
+
       <h4>If you agree and consent to these terms, please click "I Agree" to continue.</h4>
       <div className="button-container">
         <button 

@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import ConsentForm from './components/ConsentForm';
 import SurveyForm from './components/SurveyForm';
 import Instructions from './components/Instructions';
-import Game from './components/Game';
+import Game from './components/Game2';
 import PracticeMode from './components/PracticeMode';
+import DataExporter from './components/DataExporter';
 import { initializeParticipant } from './firebase/dataCollection';
 import './App.css';
 
@@ -82,6 +83,34 @@ function App() {
 
   return (
     <div className="app">
+      {/* Floating export button - only visible on consent page */}
+      {step === 'consent' && (
+        <div style={{
+          position: 'fixed',
+          top: '20px',
+          right: '20px',
+          zIndex: 9999
+        }}>
+          <button
+            onClick={() => setStep('export')}
+            style={{
+              padding: '10px 15px',
+              backgroundColor: '#FF6B35',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '12px',
+              fontWeight: 'bold',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+            }}
+            title="Export Firebase data to CSV"
+          >
+            📊 Export Data
+          </button>
+        </div>
+      )}
+
       {step === 'consent' && (
         <ConsentForm 
           onConsent={handleConsent}
@@ -112,6 +141,53 @@ function App() {
           participantId={participantId}
           onGameComplete={handleGameComplete}
         />
+      )}
+
+      {step === 'export' && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.8)',
+          zIndex: 10000,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center'
+        }}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: '20px',
+            maxWidth: '90vw',
+            maxHeight: '90vh',
+            overflow: 'auto'
+          }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '20px'
+            }}>
+              <h2 style={{ margin: 0 }}>Export Firebase Data</h2>
+              <button
+                onClick={() => setStep('consent')}
+                style={{
+                  padding: '8px 12px',
+                  backgroundColor: '#666',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer'
+                }}
+              >
+                ✕ Close
+              </button>
+            </div>
+            <DataExporter />
+          </div>
+        </div>
       )}
 
       {step === 'complete' && (

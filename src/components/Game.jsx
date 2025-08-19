@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { RawMovementTracker, RewardTracker, saveSessionData } from '../firebase/dataCollection';
+import { RawMovementTracker, RewardTracker, saveParticipantTrial, saveParticipantSession } from '../firebase/dataCollection';
+import { getRandomRoundDuration, getRandomKeySequence, GAME_CONFIG, getRewardSequence } from '../config/gameConfig';
 import './game/Game.css';
 
 const Game = ({ participantData, participantId, onGameComplete }) => {
@@ -15,6 +16,7 @@ const Game = ({ participantData, participantId, onGameComplete }) => {
   const canvasRef = useRef(null);
   const gameCompletedRef = useRef(false);
   const speedWarningTimeout = useRef(null);
+  const lastBarSwitchTime = useRef(Date.now());
 
   // Key sequence state
   const [keySequence, setKeySequence] = useState([]);
@@ -36,465 +38,628 @@ const Game = ({ participantData, participantId, onGameComplete }) => {
   const rawMovementTracker = useRef(null);
   const rewardTracker = useRef(null);
   const [trialData, setTrialData] = useState([]);
+  const [trialSaveInProgress, setTrialSaveInProgress] = useState(false);
+  const [currentTrialDuration, setCurrentTrialDuration] = useState(0);
+  
+  // New synchronized data arrays for each reach
+  const [gameStateArray, setGameStateArray] = useState([]);
+  const [eventArray, setEventArray] = useState([]);
+  const [posXArray, setPosXArray] = useState([]);
+  const [posYArray, setPosYArray] = useState([]);
+  const [startWall, setStartWall] = useState(null);
+  const [endWall, setEndWall] = useState(null);
+  const [keytapNumberArray, setKeytapNumberArray] = useState([]);
+  const [keytapValueArray, setKeytapValueArray] = useState([]);
+  const [timestampArray, setTimestampArray] = useState([]);
+  const [keyupTimestampArray, setKeyupTimestampArray] = useState([]);
+  const [validityArray, setValidityArray] = useState([]);
+  const [currentReachNumber, setCurrentReachNumber] = useState(1);
+  const [lastWallPosition, setLastWallPosition] = useState(null);
+  const [currentKeytapNumber, setCurrentKeytapNumber] = useState(1);
+  
+  // Refs for tracking event states
+  const rewardCueActiveRef = useRef(false);
+  const rewardCollectionActiveRef = useRef(false);
 
-  // Generate random round duration (8, 10, or 12 seconds)
-  const getRandomRoundDuration = () => {
-    const durations = [8, 10, 12];
-    return durations[Math.floor(Math.random() * durations.length)];
-  };
-
-  // Generate random key sequence
-  const generateKeySequence = () => {
-    const keys = ['a', 's', 'd', 'f']; 
-    const sequence = [];
-    const sequenceLength = 10; // Always 10 keys (keeping this for key sequence length)
+  // Helper function to append reaching data to all arrays simultaneously
+  const appendReachingData = (x, y, timestamp) => {
+    // Determine game state based on x position relative to bar boundaries
+    let gameState;
+    let currentWall;
+    const { leftBar, rightBar } = getBarPositions();
+    const leftBarRightEdge = leftBar.x + leftBar.width;
+    const rightBarLeftEdge = rightBar.x;
     
-    for (let i = 0; i < sequenceLength; i++) {
-      sequence.push(keys[Math.floor(Math.random() * keys.length)]);
+    if (x >= leftBar.x && x <= leftBarRightEdge) {
+      gameState = 'ASW'; // At Source Wall (left bar)
+      currentWall = 'L';
+    } else if (x >= rightBarLeftEdge && x <= rightBar.x + rightBar.width) {
+      gameState = 'ATW'; // At Target Wall (right bar)
+      currentWall = 'R';
+    } else {
+      // Check if warning is active - if so, show Warning State instead of Reach Ongoing
+      // Note: Warning State (WS) and Reach Ongoing (RO) are mutually exclusive
+      if (showSpeedWarning) {
+        gameState = 'WS'; // Warning State - "move faster" warning is displayed
+      } else {
+        gameState = 'RO'; // Reach Ongoing - normal movement between bars
+      }
+      currentWall = 'N'; // Neither wall
     }
     
-    setKeySequence(sequence);
-    setCurrentKeyIndex(0);
-    // Initialize all keys as pending
-    setKeyStates(new Array(sequenceLength).fill('pending'));
-  };
-
-    // Handle continue from break to rich environment
-  const handleContinueToRich = () => {
-    setCurrentEnvironment('rich');
-    setEnvironmentRound(1); // Explicitly reset to 1 for rich environment
-    setGamePhase('reaching');
-    setTimeLeft(getRandomRoundDuration());
-    setGameActive(true);
-    setCoinVisible(false);
-    setKeySequence([]);
-    setKeyStates([]);
-    setCurrentRewardValue(0); // Reset reward value
-    
-    // Reset movement tracking for new environment
-    if (rawMovementTracker.current && rawMovementTracker.current.isTracking) {
-      rawMovementTracker.current.stopTracking();
+    // Wall-to-wall reach counting logic
+    if (lastWallPosition && lastWallPosition !== currentWall && currentWall !== 'N') {
+      // We've moved from one wall to another wall (not to neutral)
+      const newReachNumber = currentReachNumber + 1;
+      setCurrentReachNumber(newReachNumber);
+      
+      // Set the end wall for the completed reach
+      setEndWall(currentWall);
+      
+      // Save the completed reach data
+      saveReachData(newReachNumber - 1); // Save the reach that just completed
+      
+      // Reset arrays for the new reach
+      setGameStateArray([]);
+      setEventArray([]);
+      setPosXArray([]);
+      setPosYArray([]);
+      setStartWall(currentWall); // New reach starts from this wall
+      setEndWall(null);
+      setKeytapNumberArray([]);
+      setKeytapValueArray([]);
+      setTimestampArray([]);
+      setKeyupTimestampArray([]);
+      setValidityArray([]);
+      setCurrentReachNumber(1);
+      setCurrentKeytapNumber(1);
     }
     
-    // Use existing tracker instead of creating a new one
-    if (rawMovementTracker.current) {
-      rawMovementTracker.current.startTracking({
-        environment: 'rich',
-        environmentRound: 1, // Use environmentRound instead of round for consistency
-        participantId: participantId
-      });
-    }
+    // Update last wall position for next comparison
+    setLastWallPosition(currentWall);
     
-
+    // Append data to all synchronized arrays
+    setGameStateArray(prev => [...prev, gameState]);
+    setEventArray(prev => [...prev, 'movement']);
+    setPosXArray(prev => [...prev, x]);
+    setPosYArray(prev => [...prev, y]);
+    setTimestampArray(prev => [...prev, timestamp]);
+    
+    // Set start wall on first movement if not set
+    if (!startWall && currentWall !== 'N') {
+      setStartWall(currentWall);
+    }
   };
 
-  // Bar dimensions and positions - calculated reactively based on canvasSize
-  const barWidth = Math.max(canvasSize.width * 0.1, 100); // Minimum 100px width
-  const barHeight = Math.max(canvasSize.height, 600); // Minimum 600px height
-
-  // Bar positions (left and right edges)
-  const leftBar = {
-    x: 0,
-    y: 0,
-    width: barWidth,
-    height: barHeight
-  };
-  const rightBar = {
-    x: Math.max(canvasSize.width - barWidth, barWidth), // Ensure right bar doesn't overlap left
-    y: 0,
-    width: barWidth,
-    height: barHeight
-  };
-
-  // Coin position (center of screen, moved up slightly)
-  const coinPosition = {
-    x: Math.max(canvasSize.width / 2, 400), // Minimum 400px from left
-    y: Math.max(canvasSize.height / 2 - 60, 200) // Minimum 200px from top
-  };
-
-  const coinRadius = Math.max(Math.min(canvasSize.width, canvasSize.height) * 0.12, 30); // Minimum 30px radius
-
-  // Handle window resize
-  useEffect(() => {
-        const handleResize = () => {
-      const newSize = { width: window.innerWidth, height: window.innerHeight };
-      setCanvasSize(newSize);
+  // Helper function to save reach data
+  const saveReachData = async (reachNumber) => {
+    if (gameStateArray.length === 0) return;
+    
+    const reachData = {
+      participantId,
+      participantData,
+      sessionStartTime,
+      reachNumber,
+      environment: currentEnvironment,
+      environmentRound,
+      startWall,
+      endWall,
+      gameStateArray,
+      eventArray,
+      posXArray,
+      posYArray,
+      timestampArray,
+      completedAt: new Date().toISOString()
     };
     
-    // Set initial size
-    const initialSize = { width: window.innerWidth, height: window.innerHeight };
-    setCanvasSize(initialSize);
+    try {
+      await saveParticipantTrial(participantId, reachData);
+      console.log(`Reach ${reachNumber} data saved successfully`);
+    } catch (error) {
+      console.error(`Failed to save reach ${reachNumber} data:`, error);
+    }
+  };
+
+  // Helper function to save round data (key presses)
+  const saveRoundData = async () => {
+    if (keytapNumberArray.length === 0) return;
     
+    const roundData = {
+      participantId,
+      participantData,
+      sessionStartTime,
+      environment: currentEnvironment,
+      environmentRound,
+      rewardValue: currentRewardValue,
+      keytapNumberArray,
+      keytapValueArray,
+      timestampArray,
+      keyupTimestampArray,
+      validityArray,
+      totalPresses: keytapNumberArray.length,
+      correctPresses: validityArray.filter(v => v === 'correct').length,
+      averageInterKeyInterval: (() => {
+        if (timestampArray.length < 2) return 0;
+        const intervals = [];
+        for (let i = 1; i < timestampArray.length; i++) {
+          intervals.push(timestampArray[i] - timestampArray[i-1]);
+        }
+        return intervals.reduce((a, b) => a + b, 0) / intervals.length;
+      })(),
+      completedAt: new Date().toISOString()
+    };
+    
+    try {
+      await saveParticipantTrial(participantId, roundData);
+      console.log(`Round ${environmentRound} data saved successfully`);
+    } catch (error) {
+      console.error(`Failed to save round ${environmentRound} data:`, error);
+    }
+  };
+
+  // Bar dimensions and positions - copied from working practice mode
+  const getBarPositions = () => {
+    const barWidth = canvasSize.width * 0.1;
+    const barHeight = canvasSize.height;
+    
+    return {
+      leftBar: {
+        x: 0,
+        y: 0,
+        width: barWidth,
+        height: barHeight
+      },
+      rightBar: {
+        x: canvasSize.width - barWidth,
+        y: 0,
+        width: barWidth,
+        height: barHeight
+      },
+      coinPosition: {
+        x: canvasSize.width / 2,
+        y: canvasSize.height / 2 - 120
+      },
+      coinRadius: Math.max(Math.min(canvasSize.width, canvasSize.height) * 0.12, 30) // Minimum 30px radius
+    };
+  };
+
+  // Function to draw coin pile based on reward value
+  const drawCoinPile = (ctx, rewardValue, coinPosition) => {
+    let numCoins, baseWidth;
+    
+    if (rewardValue === 10) {
+      numCoins = 1;
+      baseWidth = 1;
+    } else if (rewardValue === 30) {
+      numCoins = 3;
+      baseWidth = 2;
+    } else if (rewardValue === 50) {
+      numCoins = 10;
+      baseWidth = 4;
+    } else {
+      return; // No coins for 0 reward
+    }
+    
+    const coinRadius = 20;
+    const spacing = coinRadius * 1.8; // Slight overlap
+    
+    // Create pyramid structure
+    const pyramid = [];
+    if (rewardValue === 10) {
+      pyramid.push(1);
+    } else if (rewardValue === 30) {
+      pyramid.push(1, 2);
+    } else if (rewardValue === 50) {
+      pyramid.push(1, 2, 3, 4);
+    }
+    
+    let coinIndex = 0;
+    for (let row = 0; row < pyramid.length; row++) {
+      const coinsInRow = pyramid[row];
+      const rowWidth = coinsInRow * spacing;
+      const startX = coinPosition.x - (rowWidth - spacing) / 2;
+      
+      for (let col = 0; col < coinsInRow; col++) {
+        if (coinIndex >= numCoins) break;
+        
+        const x = startX + col * spacing;
+        const y = coinPosition.y + row * spacing * 0.8;
+        
+        // Draw coin
+        ctx.fillStyle = '#FFD700';
+        ctx.beginPath();
+        ctx.arc(x, y, coinRadius, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Add coin border
+        ctx.strokeStyle = '#B8860B';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        coinIndex++;
+      }
+    }
+    
+    // Calculate pile height for positioning
+    const pileHeight = pyramid.length * spacing * 0.8;
+    
+    // Draw reward value text below coins
+    ctx.fillStyle = '#FFD700';
+    ctx.font = 'bold 20px "Orbitron", "Courier New", monospace';
+    ctx.textAlign = 'center';
+    
+    let textSpacing;
+    if (rewardValue === 10) {
+      textSpacing = 10;
+    } else if (rewardValue === 30) {
+      textSpacing = 15;
+    } else {
+      textSpacing = 25;
+    }
+    
+    ctx.fillText(`${rewardValue} points`, coinPosition.x, coinPosition.y + pileHeight + textSpacing);
+    
+    return pileHeight;
+  };
+
+  // Initialize game
+  useEffect(() => {
+    const handleResize = () => {
+      setCanvasSize({ width: window.innerWidth, height: window.innerHeight });
+    };
+
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Timer for circle phase
+  // Initialize game when component mounts - copied from working Game2.jsx
   useEffect(() => {
-    if (gameActive && gamePhase === 'reaching') {
-      const timer = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) {
-            // Only transition if we're in a valid environment (not break) and game is still active
-            if (currentEnvironment === 'break' || !gameActive) {
-              return 0; // Stop timer but don't transition
-            }
-            
-            setGamePhase('coin');
-            setCoinVisible(true);
-            
-    let rewardValue = 0;
+    // Wait a bit for participantId to be available if it's not yet set
+    if (!participantId) {
+      const timer = setTimeout(() => {
+        startGame();
+      }, 100);
+      return () => clearTimeout(timer);
+    } else {
+      startGame();
+    }
+  }, [participantId]);
+
+  // Start game
+  const startGame = () => {
+    setGameActive(true);
+    setScore(0);
+    setEnvironmentRound(1);
+    setCurrentEnvironment('poor');
+    setGamePhase('reaching');
+    setCoinVisible(false);
+    setLastClicked(null);
+    setShowSpeedWarning(false);
+    gameCompletedRef.current = false;
     
-    if (currentEnvironment === 'poor') {
-      // Poor environment: specific reward sequence [10, 10, 0, 10, 10, 0, 10, 50, 10, 10]
-      const poorRewards = [10, 10, 0, 10, 10, 0, 10, 50, 10, 10];
-      // Map rounds (1,3,5,7,9,11,13,15,17,19) to indices (0,1,2,3,4,5,6,7,8,9)
-      const rewardIndex = Math.floor((environmentRound - 1) / 2);
-      rewardValue = poorRewards[rewardIndex];
-    } else if (currentEnvironment === 'rich') {
-      // Rich environment: specific reward sequence [50, 100, 50, 100, 10, 50, 100, 50, 100, 50]
-      const richRewards = [50, 100, 50, 100, 10, 50, 100, 50, 100, 50, 0];
-      // Map rounds (1,3,5,7,9,11,13,15,17,19) to indices (0,1,2,3,4,5,6,7,8,9)
-      const rewardIndex = Math.floor((environmentRound - 1) / 2);
-      rewardValue = richRewards[rewardIndex];
+    // Reset data collection arrays
+    setGameStateArray([]);
+    setEventArray([]);
+    setPosXArray([]);
+    setPosYArray([]);
+    setStartWall(null);
+    setEndWall(null);
+    setKeytapNumberArray([]);
+    setKeytapValueArray([]);
+    setTimestampArray([]);
+    setKeyupTimestampArray([]);
+    setValidityArray([]);
+    setCurrentReachNumber(1);
+    setLastWallPosition(null);
+    setCurrentKeytapNumber(1);
+    
+    // Get random round duration and key sequence
+    const roundDuration = getRandomRoundDuration('poor');
+    const sequence = getRandomKeySequence();
+    
+    setTimeLeft(roundDuration);
+    setKeySequence(sequence);
+    setKeyStates(new Array(sequence.length).fill('pending'));
+    
+    // Initialize trackers with fallback - copied from working Game2.jsx
+    if (participantId) {
+      rawMovementTracker.current = new RawMovementTracker(participantId);
+      rewardTracker.current = new RewardTracker(participantId);
+    } else {
+      // Create trackers with a temporary ID if none available
+      const tempId = 'temp_' + Date.now();
+      rawMovementTracker.current = new RawMovementTracker(tempId);
+      rewardTracker.current = new RewardTracker(tempId);
     }
-            
+    
+    console.log('Game started with:', { roundDuration, sequence });
+  };
 
-            
-            setCurrentRewardValue(rewardValue);
-            
-            // Initialize tracking based on input method
-            if (inputMethod === 'key') {
-              generateKeySequence(); // Generate new sequence for this round
-            }
-            
-            return 0;
-          }
-          return prev - 1;
-        });
+  // Handle environment switch
+  const handleContinueToRich = () => {
+    setCurrentEnvironment('rich');
+    setEnvironmentRound(1);
+    setGamePhase('reaching');
+    setCoinVisible(false);
+    setLastClicked(null);
+    setShowSpeedWarning(false);
+    
+    // Reset data collection arrays for new environment
+    setGameStateArray([]);
+    setEventArray([]);
+    setPosXArray([]);
+    setPosYArray([]);
+    setStartWall(null);
+    setEndWall(null);
+    setKeytapNumberArray([]);
+    setKeytapValueArray([]);
+    setTimestampArray([]);
+    setKeyupTimestampArray([]);
+    setValidityArray([]);
+    setCurrentReachNumber(1);
+    setLastWallPosition(null);
+    setCurrentKeytapNumber(1);
+    
+    // Get random round duration and key sequence for rich environment
+    const roundDuration = getRandomRoundDuration('rich');
+    const sequence = getRandomKeySequence();
+    
+    setTimeLeft(roundDuration);
+    setKeySequence(sequence);
+    setKeyStates(new Array(sequence.length).fill('pending'));
+    
+    // Initialize trackers for rich environment - copied from working Game2.jsx
+    if (participantId) {
+      rawMovementTracker.current = new RawMovementTracker(participantId);
+      rewardTracker.current = new RewardTracker(participantId);
+    } else {
+      // Create trackers with a temporary ID if none available
+      const tempId = 'temp_' + Date.now();
+      rawMovementTracker.current = new RawMovementTracker(tempId);
+      rewardTracker.current = new RewardTracker(tempId);
+    }
+    
+    console.log('Switched to rich environment:', { roundDuration, sequence });
+  };
+
+  // Handle key press during reward collection
+  const handleKeyPress = (event) => {
+    if (!gameActive || gamePhase !== 'coin' || !coinVisible) return;
+    
+    const key = event.key.toLowerCase();
+    const validKeys = ['a', 's', 'd', 'f'];
+    
+    if (!validKeys.includes(key)) return;
+    
+    // Add safety check for keySequence
+    if (keySequence.length === 0 || currentKeyIndex >= keySequence.length) return;
+    
+    const timestamp = Date.now();
+    const expectedKey = keySequence[currentKeyIndex];
+    const isValid = key === expectedKey;
+    
+    // Update key states
+    const newKeyStates = [...keyStates];
+    newKeyStates[currentKeyIndex] = isValid ? 'correct' : 'incorrect';
+    setKeyStates(newKeyStates);
+    
+    // Record key press data
+    setKeytapNumberArray(prev => [...prev, currentKeyIndex + 1]);
+    setKeytapValueArray(prev => [...prev, currentRewardValue]);
+    setTimestampArray(prev => [...prev, timestamp]);
+    setValidityArray(prev => [...prev, isValid ? 'correct' : 'incorrect']);
+    
+    if (isValid) {
+      // Correct key pressed
+      setScore(prev => prev + currentRewardValue);
+      setTotalCoinsCollected(prev => prev + 1);
+      
+      // Move to next key
+      const nextIndex = currentKeyIndex + 1;
+      if (nextIndex < keySequence.length) {
+        setCurrentKeyIndex(nextIndex);
+        setShowRewardAnimation(true);
+        setRewardAnimationText(`+${currentRewardValue}!`);
+        
+        setTimeout(() => {
+          setShowRewardAnimation(false);
+        }, 1000);
+      } else {
+        // Round completed
+        setGamePhase('reaching');
+        setCoinVisible(false);
+        setCurrentKeyIndex(0);
+        setKeyStates(new Array(keySequence.length).fill('pending'));
+        
+        // Save round data
+        saveRoundData();
+        
+        // Move to next round
+        const nextRound = environmentRound + 1;
+        setEnvironmentRound(nextRound);
+        
+        if (currentEnvironment === 'poor' && nextRound > GAME_CONFIG.BLOCKS.POOR_ROUNDS) {
+          // Switch to break
+          setGamePhase('break');
+        } else if (currentEnvironment === 'rich' && nextRound > GAME_CONFIG.BLOCKS.RICH_ROUNDS) {
+          // Game completed
+          setGameActive(false);
+          gameCompletedRef.current = true;
+        } else {
+          // Continue with next round
+          const roundDuration = getRandomRoundDuration(currentEnvironment);
+          const sequence = getRandomKeySequence();
+          
+          setTimeLeft(roundDuration);
+          setKeySequence(sequence);
+          setKeyStates(new Array(sequence.length).fill('pending'));
+        }
+      }
+    } else {
+      // Incorrect key pressed
+      setShowRewardAnimation(true);
+      setRewardAnimationText('Wrong key!');
+      
+      setTimeout(() => {
+        setShowRewardAnimation(false);
       }, 1000);
-
-      return () => clearInterval(timer);
     }
-  }, [gameActive, gamePhase]); // Remove environmentRound from dependencies to prevent double triggering
+  };
 
-  // Start raw movement tracking when reaching phase begins
-  // This collects high-frequency x, y, time data for research analysis
-  // No real-time calculations - just pure data collection
+  // Handle key up for timing
+  const handleKeyUp = (event) => {
+    if (!gameActive || gamePhase !== 'coin' || !coinVisible) return;
+    
+    const key = event.key.toLowerCase();
+    const validKeys = ['a', 's', 'd', 'f'];
+    
+    if (!validKeys.includes(key)) return;
+    
+    // Add safety check for keySequence
+    if (keySequence.length === 0 || currentKeyIndex >= keySequence.length) return;
+    
+    const timestamp = Date.now();
+    setKeyupTimestampArray(prev => [...prev, timestamp]);
+  };
+
+  // Timer effect
   useEffect(() => {
-    if (gamePhase === 'reaching' && rawMovementTracker.current) {
-      // Calculate expected reward for logging (10 rounds per environment)
-      let logReward = 0;
-      if (currentEnvironment === 'poor') {
-        // Poor environment: specific reward sequence [10, 10, 0, 10, 10, 0, 10, 50, 10, 10]
-        const poorRewards = [10, 10, 0, 10, 10, 0, 10, 50, 10, 10];
-        // Map rounds (1,3,5,7,9,11,13,15,17,19) to indices (0,1,2,3,4,5,6,7,8,9)
-        const rewardIndex = Math.floor((environmentRound - 1) / 2);
-        logReward = poorRewards[rewardIndex];
-      } else if (currentEnvironment === 'rich') {
-        // Rich environment: specific reward sequence [50, 100, 50, 100, 10, 50, 100, 50, 100, 50]
-        const richRewards = [50, 100, 50, 100, 10, 50, 100, 50, 100, 50];
-        // Map rounds (1,3,5,7,9,11,13,15,17,19) to indices (0,1,2,3,4,5,6,7,8,9)
-        const rewardIndex = Math.floor((environmentRound - 1) / 2);
-        logReward = richRewards[rewardIndex];
-      }
-      
-      console.log('Starting raw movement tracking for trial:', {
-        environment: currentEnvironment,
-        environmentRound: environmentRound,
-        expectedReward: logReward,
-        isTracking: rawMovementTracker.current.isTracking
-      });
-      
-      // Use reward calculation for tracking (10 rounds per environment)
-      let expectedReward = 0;
-      if (currentEnvironment === 'poor') {
-        if (environmentRound <= 5) {
-          expectedReward = environmentRound % 2 === 1 ? 10 : 50;
-        } else {
-          expectedReward = environmentRound % 2 === 1 ? 25 : 75;
+    if (!gameActive || gamePhase !== 'reaching') return;
+    
+    const timer = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          // Time's up, show reward
+          setGamePhase('coin');
+          setCoinVisible(true);
+          
+          // Get reward value from sequence
+          const rewardSequence = getRewardSequence(currentEnvironment);
+          const rewardIndex = (environmentRound - 1) % rewardSequence.length;
+          const rewardValue = rewardSequence[rewardIndex];
+          
+          setCurrentRewardValue(rewardValue);
+          
+          // Reset key sequence state
+          setCurrentKeyIndex(0);
+          setKeyStates(new Array(keySequence.length).fill('pending'));
+          
+          // Reset key press arrays for new round
+          setKeytapNumberArray([]);
+          setKeytapValueArray([]);
+          setTimestampArray([]);
+          setKeyupTimestampArray([]);
+          setValidityArray([]);
+          setCurrentKeytapNumber(1);
+          
+          return 0;
         }
-      } else if (currentEnvironment === 'rich') {
-        if (environmentRound <= 5) {
-          expectedReward = Math.max(100 - (environmentRound - 1) * 15, 25);
-        } else {
-          expectedReward = Math.max(75 - (environmentRound - 6) * 10, 15);
-        }
-      }
-      
-      const trialInfo = {
-        environment: currentEnvironment,
-        environmentRound: environmentRound,
-        expectedReward: expectedReward
-      };
-      // Start tracking with bar positions for context
-      rawMovementTracker.current.startTracking(trialInfo, { 
-        left: leftBar, 
-        right: rightBar 
+        return prev - 1;
       });
-      console.log('Raw movement tracking started successfully');
-    }
-  }, [gamePhase, currentEnvironment, environmentRound, leftBar, rightBar]);
+    }, 1000);
+    
+    return () => clearInterval(timer);
+  }, [gameActive, gamePhase, environmentRound, currentEnvironment, keySequence.length]);
 
-  // Start reward tracking when key sequence is generated
+  // Start reward tracking when key sequence is generated - copied from working Game2.jsx
   useEffect(() => {
     if (gamePhase === 'coin' && keySequence.length > 0 && rewardTracker.current) {
       console.log('Starting reward tracking for sequence:', keySequence);
       
-      // Use reward calculation for tracking (19 rounds per environment)
-      let expectedReward = 0;
-      if (currentEnvironment === 'poor') {
-        // Poor environment: specific reward sequence [10, 10, 0, 10, 10, 0, 10, 50, 10, 10]
-        const poorRewards = [10, 10, 0, 10, 10, 0, 10, 50, 10, 10];
-        // Map rounds (1,3,5,7,9,11,13,15,17,19) to indices (0,1,2,3,4,5,6,7,8,9)
-        const rewardIndex = Math.floor((environmentRound - 1) / 2);
-        expectedReward = poorRewards[rewardIndex];
-      } else if (currentEnvironment === 'rich') {
-        // Rich environment: specific reward sequence [50, 100, 50, 100, 10, 50, 100, 50, 100, 50]
-        const richRewards = [50, 100, 50, 100, 10, 50, 100, 50, 100, 50];
-        // Map rounds (1,3,5,7,9,11,13,15,17,19) to indices (0,1,2,3,4,5,6,7,8,9)
-        const rewardIndex = Math.floor((environmentRound - 1) / 2);
-        expectedReward = richRewards[rewardIndex];
-      }
-      
       const trialInfo = {
         environment: currentEnvironment,
         environmentRound: environmentRound,
-        expectedReward: expectedReward
+        expectedReward: currentRewardValue
       };
       rewardTracker.current.startTracking(trialInfo, keySequence);
       console.log('Reward tracking started successfully');
     }
-  }, [keySequence, gamePhase, currentEnvironment, environmentRound]);
+  }, [keySequence, gamePhase, currentEnvironment, environmentRound, currentRewardValue]);
 
-  // Handle keyboard input for coin interaction and break screen
+  // Add event listeners
   useEffect(() => {
-    const handleKeyPress = (event) => {
-      // Handle break screen
-      if (gamePhase === 'break' && event.key === ' ') {
-        handleContinueToRich();
-        return;
-      }
-      
-      // Key sequence implementation for reward collection
-      
-      if (!gameActive || gamePhase !== 'coin' || !coinVisible || keySequence.length === 0) return;
-      
-      const pressedKey = event.key.toLowerCase();
-      const expectedKey = keySequence[currentKeyIndex];
-      
-              // Record key press for reward tracking
-        const isCorrect = pressedKey === expectedKey;
-        if (rewardTracker.current) {
-          rewardTracker.current.recordKeyPress(pressedKey, isCorrect);
-        }
-      
-      if (pressedKey === expectedKey) {
-        // Mark key as correct
-        setKeyStates(prev => {
-          const newStates = [...prev];
-          newStates[currentKeyIndex] = 'correct';
-          return newStates;
-        });
-        
-        setCurrentKeyIndex(prev => {
-          const nextIndex = prev + 1;
-          if (nextIndex >= keySequence.length) {
-            // Sequence completed, coin collected
-            const rewardPoints = currentRewardValue || 0; // Ensure it's a number
-            setScore(prev => (prev || 0) + rewardPoints);
-            
-            // Show reward animation
-            if (rewardPoints > 0) {
-              setRewardAnimationText(`+${rewardPoints}`);
-              setShowRewardAnimation(true);
-              setTimeout(() => {
-                setShowRewardAnimation(false);
-              }, 2000);
-            }
-            
-            setTotalCoinsCollected(prev => prev + 1);
-            
-                        // Modified trial data collection to include movement data
-            if (rewardTracker.current) {
-              const rewardData = rewardTracker.current.stopTracking();
-              
-              // Get movement data if available
-              let movementData = null;
-              if (rawMovementTracker.current && rawMovementTracker.current.isTracking) {
-                movementData = rawMovementTracker.current.stopTracking();
-              }
-              
-                            // Create comprehensive trial data with all collected information
-              const completeTrialData = {
-                participantId: participantId,
-                environment: currentEnvironment,
-                environmentRound: environmentRound,
-                totalRound: (currentEnvironment === 'poor' ? environmentRound : environmentRound + 2),
-                expectedReward: currentRewardValue || 0,
-                actualReward: rewardPoints || 0,
-                
-                // Raw movement data (reaching phase) - simplified for research
-                rawMovementData: movementData || {
-                  participantId: participantId,
-                  trialInfo: {
-                    environment: currentEnvironment,
-                    environmentRound: environmentRound,
-                    expectedReward: currentRewardValue || 0
-                  },
-                  startTime: Date.now() - 8000, // Approximate trial duration
-                  endTime: Date.now(),
-                  duration: 8000,
-                  screenDimensions: { width: window.innerWidth, height: window.innerHeight },
-                  barPositions: { left: leftBar, right: rightBar },
-                  rawMovements: [], // Empty if no movement data
-                  totalMovements: 0,
-                  samplingRate: 0
-                  // All analysis metrics removed - will be calculated post-game from raw data
-                },
-                
-                // Reward data (key pressing phase)
-                rewardData: rewardData || {
-                  participantId: participantId,
-                  trialInfo: {
-                    environment: currentEnvironment,
-                    environmentRound: environmentRound,
-                    expectedReward: currentRewardValue || 0
-                  },
-                  startTime: Date.now() - 5000, // Approximate key press duration
-                  endTime: Date.now(),
-                  duration: 5000,
-                  expectedSequence: keySequence || [],
-                  keyPresses: [], // Empty if no key press data
-                  totalPresses: 0,
-                  correctPresses: 0,
-                  accuracy: 0,
-                  overshoot: 0,
-                  averageInterKeyInterval: 0,
-                  completionTime: null
-                },
-                
-                score: (score || 0) + (rewardPoints || 0),
-                timestamp: new Date().toISOString()
-              };
-              
-              // Clean the data to remove any undefined values
-              const cleanTrialData = JSON.parse(JSON.stringify(completeTrialData));
-              
-              setTrialData(prev => [...prev, cleanTrialData]);
-              
-              // Reset trackers for next trial (don't recreate, just reset state)
-              if (rawMovementTracker.current) {
-                rawMovementTracker.current.stopTracking();
-              }
-              if (rewardTracker.current) {
-                rewardTracker.current.stopTracking();
-              }
-            }
-            
-            // GAME PROGRESSION: 10 rounds per environment (rounds 1,2,3,4,5,6,7,8,9,10)
-            const totalTrialsCompleted = trialData.length;
-            
-            // After 19 poor rounds (round 19), switch to break
-            if (currentEnvironment === 'poor' && environmentRound >= 19) {
-              setCurrentEnvironment('break');
-              setGamePhase('break');
-              setCoinVisible(false);
-              setKeySequence([]);
-              setKeyStates([]);
-              return nextIndex;
-            }
-            
-            // After 19 rich rounds (round 19), end game
-            if (currentEnvironment === 'rich' && environmentRound >= 21) {
-              setGameActive(false);
-              setCoinVisible(false);
-              setKeySequence([]);
-              setKeyStates([]);
-              if (!gameCompletedRef.current) {
-                gameCompletedRef.current = true;
-                onGameComplete?.();
-              }
-              return nextIndex;
-            }
-            
-            // Continue to next round in current environment
-            // SIMPLE WORKAROUND: Just increment environmentRound
-            // Increment by 1 (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)
-            setEnvironmentRound(prev => prev + 1);
-            generateKeySequence();
-            setGamePhase('reaching');
-            setTimeLeft(getRandomRoundDuration());
-            setGameActive(true);
-          }
-          return nextIndex;
-        });
-      } else {
-        // Mark key as incorrect but don't advance
-        setKeyStates(prev => {
-          const newStates = [...prev];
-          newStates[currentKeyIndex] = 'incorrect';
-          return newStates;
-        });
-        
-        // Reset the incorrect key to pending after a brief delay
-        setTimeout(() => {
-          setKeyStates(prev => {
-            const newStates = [...prev];
-            if (newStates[currentKeyIndex] === 'incorrect') {
-              newStates[currentKeyIndex] = 'pending';
-            }
-            return newStates;
-          });
-        }, 500);
-      }
+    if (gameActive) {
+      window.addEventListener('keydown', handleKeyPress);
+      window.addEventListener('keyup', handleKeyUp);
+    }
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyPress);
+      window.removeEventListener('keyup', handleKeyUp);
     };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
   }, [gameActive, gamePhase, coinVisible, keySequence, currentKeyIndex, keyStates, currentEnvironment, currentRewardValue, participantId, participantData, sessionStartTime, trialData, onGameComplete]);
 
-  // Enable RawMovementTracker initialization
+  // Reset data collection arrays when starting new trial
   useEffect(() => {
-    // Trackers are now initialized in startGame function
-    // This effect is kept for any future initialization needs
-    
+    if (gamePhase === 'reaching') {
+      // Reset all synchronized arrays for new round
+      setGameStateArray([]);
+      setEventArray([]);
+      setPosXArray([]);
+      setPosYArray([]);
+      setStartWall(null);
+      setEndWall(null);
+      setKeytapNumberArray([]);
+      setKeytapValueArray([]);
+      setTimestampArray([]);
+      setKeyupTimestampArray([]);
+      setValidityArray([]);
 
-  }, [participantId]);
-
-  // Start movement tracking when reaching phase begins
-  useEffect(() => {
-    if (gamePhase === 'reaching' && rawMovementTracker.current && !rawMovementTracker.current.isTracking) {
-      // Calculate expected reward using 19-round logic
-      let expectedReward = 0;
-      if (currentEnvironment === 'poor') {
-        // Poor environment: specific reward sequence [10, 10, 0, 10, 10, 0, 10, 50, 10, 10]
-        const poorRewards = [10, 10, 0, 10, 10, 0, 10, 50, 10, 10];
-        // Map rounds (1,3,5,7,9,11,13,15,17,19) to indices (0,1,2,3,4,5,6,7,8,9)
-        const rewardIndex = Math.floor((environmentRound - 1) / 2);
-        expectedReward = poorRewards[rewardIndex];
-      } else if (currentEnvironment === 'rich') {
-        // Rich environment: specific reward sequence [50, 100, 50, 100, 10, 50, 100, 50, 100, 50]
-        const richRewards = [50, 100, 50, 100, 10, 50, 100, 50, 100, 50];
-        // Map rounds (1,3,5,7,9,11,13,15,17,19) to indices (0,1,2,3,4,5,6,7,8,9)
-        const rewardIndex = Math.floor((environmentRound - 1) / 2);
-        expectedReward = richRewards[rewardIndex];
+      setCurrentReachNumber(1);
+      setLastWallPosition(null);
+      setCurrentKeytapNumber(1);
+      
+      // Reset event state refs
+      rewardCueActiveRef.current = false;
+      rewardCollectionActiveRef.current = false;
+      
+      // Start raw movement tracking when reaching phase begins - copied from working Game2.jsx
+      if (rawMovementTracker.current) {
+        const { leftBar, rightBar } = getBarPositions();
+        const trialInfo = {
+          environment: currentEnvironment,
+          environmentRound: environmentRound,
+          expectedReward: currentRewardValue
+        };
+        // Start tracking with bar positions for context
+        rawMovementTracker.current.startTracking(trialInfo, { 
+          left: leftBar, 
+          right: rightBar 
+        });
+        console.log('Raw movement tracking started successfully');
       }
       
-      const trialInfo = {
-        environment: currentEnvironment,
-        environmentRound: environmentRound,
-        expectedReward: expectedReward
-      };
-      // Start tracking with bar positions for context
-      rawMovementTracker.current.startTracking(trialInfo, { 
-        left: leftBar, 
-        right: rightBar 
-      });
+      console.log('Data collection arrays reset for new trial');
     }
-  }, [gamePhase, currentEnvironment, environmentRound, leftBar, rightBar]);
+  }, [gamePhase, currentEnvironment, environmentRound, currentRewardValue]);
 
-  // Handle mouse movement for bar hover detection
+  // Handle cursor visibility based on game phase
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Remove existing cursor classes
+    canvas.classList.remove('cursor-visible', 'cursor-hidden');
+
+    if (gamePhase === 'coin') {
+      // Hide cursor during reward collection
+      canvas.classList.add('cursor-hidden');
+    } else {
+      // Show yellow circle cursor during reaching phase
+      canvas.classList.add('cursor-visible');
+    }
+  }, [gamePhase]);
+
+  // Set initial cursor class when component mounts - copied from working practice mode
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      // Start with visible cursor since game starts in 'reaching' phase
+      canvas.classList.add('cursor-visible');
+    }
+  }, []);
+
+  // Handle mouse movement for bar hover detection - copied from working Game2.jsx
   const handleMouseMove = (event) => {
     if (!gameActive || gamePhase !== 'reaching') return; // Only track during reaching phase
 
@@ -502,6 +667,9 @@ const Game = ({ participantData, participantId, onGameComplete }) => {
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
+
+    // Get current bar positions
+    const { leftBar, rightBar } = getBarPositions();
 
     // Record movement data during reaching phase
     let currentBar = null;
@@ -531,7 +699,7 @@ const Game = ({ participantData, participantId, onGameComplete }) => {
         if (speedWarningTimeout.current) {
           clearTimeout(speedWarningTimeout.current);
         }
-        // Set warning to appear after 2 seconds on this bar
+        // Set warning to appear after 2 seconds on this bar - copied from working Game2.jsx
         speedWarningTimeout.current = setTimeout(() => {
           setShowSpeedWarning(true);
         }, 2000);
@@ -542,125 +710,101 @@ const Game = ({ participantData, participantId, onGameComplete }) => {
     ) {
       if (lastClicked !== 'right') {
         setLastClicked('right');
+        lastBarSwitchTime.current = Date.now();
         // Clear any existing warning when switching bars
         setShowSpeedWarning(false);
         if (speedWarningTimeout.current) {
           clearTimeout(speedWarningTimeout.current);
         }
-        // Set warning to appear after 2 seconds on this bar
+        // Set warning to appear after 2 seconds on this bar - copied from working Game2.jsx
         speedWarningTimeout.current = setTimeout(() => {
           setShowSpeedWarning(true);
         }, 2000);
       }
-    }
-  };
-
-    // Game start function
-  const startGame = () => {
-    setGameActive(true);
-    setGamePhase('reaching');
-    setTimeLeft(getRandomRoundDuration());
-    setEnvironmentRound(1);
-    setCurrentEnvironment('poor');
-    setScore(0);
-    setTotalCoinsCollected(0);
-
-    
-    // Initialize trackers with fallback
-    if (participantId) {
-      rawMovementTracker.current = new RawMovementTracker(participantId);
-      rewardTracker.current = new RewardTracker(participantId);
     } else {
-      // Create trackers with a temporary ID if none available
-      const tempId = 'temp_' + Date.now();
-      rawMovementTracker.current = new RawMovementTracker(tempId);
-      rewardTracker.current = new RewardTracker(tempId);
-    }
-    
-  };
-
-  // Initialize game when component mounts
-  useEffect(() => {
-    // Wait a bit for participantId to be available if it's not yet set
-    if (!participantId) {
-      const timer = setTimeout(() => {
-        startGame();
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-    
-    startGame();
-  }, [participantId]); // Now depends on participantId
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
+      // Not hovering over any bar
+      setLastClicked(null);
+      setShowSpeedWarning(false);
       if (speedWarningTimeout.current) {
         clearTimeout(speedWarningTimeout.current);
       }
-    };
-  }, []);
+    }
+  };
 
-  // Draw the game
+  // Main render effect
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) {
-      console.error('Canvas ref is null!');
-      return;
-    }
+    if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      console.error('Could not get canvas context!');
-      return;
-    }
-
     ctx.clearRect(0, 0, canvasSize.width, canvasSize.height);
 
-    // Draw background
+    // Draw background - copied from working practice mode
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
 
-    // Add debugging info
-    console.log('RENDERING:', {
-      gamePhase: gamePhase,
-      gameActive: gameActive,
-      currentEnvironment: currentEnvironment,
-      environmentRound: environmentRound,
-      coinVisible: coinVisible
-    });
+    // Get current bar and coin positions
+    const { leftBar, rightBar, coinPosition, coinRadius } = getBarPositions();
 
     if (gamePhase === 'reaching') {
-      try {
-        // Always draw bars during reaching phase
-        // Draw left bar
-        ctx.beginPath();
-        ctx.rect(leftBar.x, leftBar.y, leftBar.width, leftBar.height);
-        ctx.fillStyle = lastClicked === 'left' ? '#27ae60' : '#3498db';
-        ctx.fill();
-        ctx.strokeStyle = '#2980b9';
-        ctx.lineWidth = 3;
-        ctx.stroke();
+      // Draw bars - copied from working practice mode
+      // Draw left bar
+      ctx.beginPath();
+      ctx.rect(leftBar.x, leftBar.y, leftBar.width, leftBar.height);
+      ctx.fillStyle = lastClicked === 'left' ? '#27ae60' : '#3498db';
+      ctx.fill();
+      ctx.strokeStyle = '#2980b9';
+      ctx.lineWidth = 3;
+      ctx.stroke();
 
-        // Draw right bar
-        ctx.beginPath();
-        ctx.rect(rightBar.x, rightBar.y, rightBar.width, rightBar.height);
-        ctx.fillStyle = lastClicked === 'right' ? '#27ae60' : '#3498db';
-        ctx.fill();
-        ctx.strokeStyle = '#2980b9';
-        ctx.lineWidth = 3;
-        ctx.stroke();
-        
-        console.log('Bars drawn successfully');
-      } catch (error) {
-        console.error('Error drawing bars:', error);
+      // Draw right bar
+      ctx.beginPath();
+      ctx.rect(rightBar.x, rightBar.y, rightBar.width, rightBar.height);
+      ctx.fillStyle = lastClicked === 'right' ? '#27ae60' : '#3498db';
+      ctx.fill();
+      ctx.strokeStyle = '#2980b9';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      // Draw score
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 48px "Orbitron", "Courier New", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`Score: ${score}`, canvasSize.width / 2, 100);
+
+      // Draw key sequence
+      const sequenceY = coinPosition.y + 120 + 80;
+      ctx.font = '24px "Orbitron", "Courier New", monospace';
+      ctx.textAlign = 'center';
+      
+      // Add safety check for keySequence
+      if (keySequence.length > 0) {
+        keySequence.forEach((key, index) => {
+          let color = '#FFFFFF';
+          if (index < currentKeyIndex) {
+            color = '#00FF00'; // Completed
+          } else if (index === currentKeyIndex) {
+            color = '#FFFF00'; // Current
+          }
+          
+          ctx.fillStyle = color;
+          ctx.fillText(key.toUpperCase(), canvasSize.width / 2 + (index - keySequence.length / 2) * 40, sequenceY);
+        });
       }
 
-      // Draw gray circle with question mark when 3 seconds or less remain
+      // Draw speed warning if active
+      if (showSpeedWarning) {
+        ctx.fillStyle = '#FF0000';
+        ctx.font = 'bold 32px "Orbitron", "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('MOVE FASTER!', canvasSize.width / 2, canvasSize.height / 2 + 200);
+      }
+
+      // Draw gray circle with question mark when 3 seconds or less remain - copied from working Game2.jsx
       if (timeLeft <= 3) {
         // Draw gray circle at coin position
         ctx.beginPath();
-        ctx.arc(coinPosition.x, coinPosition.y, coinRadius, 0, 2 * Math.PI);
+        ctx.arc(coinPosition.x, coinPosition.y, coinRadius, 0, 2 * Math.PI); // Use dynamic radius
         ctx.fillStyle = '#808080'; // Gray color
         ctx.fill();
         ctx.strokeStyle = '#606060'; // Darker gray border
@@ -669,253 +813,54 @@ const Game = ({ participantData, participantId, onGameComplete }) => {
         
         // Draw question mark in the center of the circle
         ctx.fillStyle = '#ffffff'; // White text
-        ctx.font = `bold ${coinRadius * 0.8}px "Arial", sans-serif`;
+        ctx.font = `bold ${coinRadius * 0.8}px "Arial", sans-serif`; // Dynamic font size
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('?', coinPosition.x, coinPosition.y);
       }
 
-      // Draw score (top right, outside bars)
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 24px "Orbitron", "Courier New", monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText(`Score: ${score}`, canvasSize.width - barWidth - 20, 50);
-
-      // Draw instructions
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '16px "Press Start 2P", "Courier New", monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('Move your cursor back and forth between the bars!', canvasSize.width / 2, canvasSize.height - 50);
-
-      // Draw speed warning if active
-      if (showSpeedWarning) {
-        ctx.fillStyle = '#FF6B6B';
-        ctx.font = 'bold 20px "Orbitron", "Courier New", monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText('Move Faster!', canvasSize.width / 2, canvasSize.height - 100);
-      }
-
-      // Draw reward animation if active
-      if (showRewardAnimation) {
-        ctx.fillStyle = '#00FF00';
-        ctx.font = 'bold 36px "Orbitron", "Courier New", monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(rewardAnimationText, canvasSize.width / 2, canvasSize.height / 2 - 100);
-      }
     } else if (gamePhase === 'coin') {
-      // No bars drawn during coin phase - participant focuses only on coin
+      // Draw background
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
 
-      // Draw coin/reward based on reward value
-      if (coinVisible) {
-        if (currentRewardValue === 0) {
-          // No reward - blank circle
-          ctx.beginPath();
-          ctx.arc(coinPosition.x, coinPosition.y, coinRadius, 0, 2 * Math.PI);
-          ctx.fillStyle = '#f0f0f0'; // Light gray
-          ctx.fill();
-          ctx.strokeStyle = '#c0c0c0'; // Darker gray border
-          ctx.lineWidth = 4;
-          ctx.stroke();
-          
-          // Display "0" curved around top of coin like US currency
-          const text = '0';
-          const fontSize = coinRadius * 0.4;
-          ctx.font = `bold ${fontSize}px "Arial", sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          
-          // For single character, just place it at the top
-          const charX = coinPosition.x;
-          const charY = coinPosition.y - coinRadius * 0.7;
-          
-          // Draw shadow
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.4)'; // Lighter shadow for gray coin
-          ctx.fillText(text, charX + 1, charY + 1);
-          
-          // Draw main character
-          ctx.fillStyle = '#888888'; // Medium gray
-          ctx.fillText(text, charX, charY);
-        } else {
-          // Coin with different colors based on reward value
-          let colors, borderColor, barColor;
-          
-          if (currentRewardValue === 10) {
-            // Bronze coin
-            colors = {
-              center: '#CD7F32',
-              mid: '#B8722C', 
-              edge: '#A0621E'
-            };
-            borderColor = '#8B5A1F';
-            barColor = '#654321';
-          } else if (currentRewardValue === 50) {
-            // Silver coin
-            colors = {
-              center: '#C0C0C0',
-              mid: '#A8A8A8',
-              edge: '#909090'
-            };
-            borderColor = '#777777';
-            barColor = '#555555';
-          } else {
-            // Gold coin (100 points or default)
-            colors = {
-              center: '#FFD700',
-              mid: '#FFA500',
-              edge: '#FF8C00'
-            };
-            borderColor = '#B8860B';
-            barColor = '#8B4513';
-          }
-          
-        // Main coin body with gradient
-        const gradient = ctx.createRadialGradient(
-          coinPosition.x - coinRadius * 0.3, 
-          coinPosition.y - coinRadius * 0.3, 
-          0,
-          coinPosition.x, 
-          coinPosition.y, 
-          coinRadius
-        );
-          gradient.addColorStop(0, colors.center);
-          gradient.addColorStop(0.7, colors.mid);
-          gradient.addColorStop(1, colors.edge);
-        
-        ctx.beginPath();
-        ctx.arc(coinPosition.x, coinPosition.y, coinRadius, 0, 2 * Math.PI);
-        ctx.fillStyle = gradient;
-        ctx.fill();
-        
-        // Coin border
-          ctx.strokeStyle = borderColor;
-        ctx.lineWidth = 4;
-        ctx.stroke();
-        
-        // Simple dark vertical bar in the middle
-          ctx.fillStyle = barColor;
-        ctx.fillRect(
-          coinPosition.x - coinRadius * 0.1, 
-          coinPosition.y - coinRadius * 0.4, 
-          coinRadius * 0.2, 
-          coinRadius * 0.8
-        );
-        
-        // Border around the vertical bar
-          ctx.strokeStyle = borderColor;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(
-          coinPosition.x - coinRadius * 0.1, 
-          coinPosition.y - coinRadius * 0.4, 
-          coinRadius * 0.2, 
-          coinRadius * 0.8
-        );
-          
-          // Display reward value curved around top of coin like US currency
-          const text = (currentRewardValue || 0).toString(); // Add fallback to 0
-          const fontSize = coinRadius * 0.4;
-          ctx.font = `bold ${fontSize}px "Arial", sans-serif`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          
-          if (text.length === 1) {
-            // For single digit, place at top center
-            const charX = coinPosition.x;
-            const charY = coinPosition.y - coinRadius * 0.7;
-            
-            // Draw shadow
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-            ctx.fillText(text, charX + 1, charY + 1);
-            
-            // Draw main character
-            ctx.fillStyle = barColor;
-            ctx.fillText(text, charX, charY);
-          } else {
-            // For multi-digit numbers, curve around the top
-            const textRadius = coinRadius * 0.7; // Distance from center to text
-            // Adjust angle spread based on number of characters
-            const baseSpread = 0.055; // Base spread in terms of π
-            const charSpread = 0.025; // Additional spread per character
-            const totalSpread = baseSpread + (charSpread * (text.length - 1));
-            const startAngle = -Math.PI * (0.5 + totalSpread); // Start angle for text curve
-            const endAngle = -Math.PI * (0.5 - totalSpread); // End angle for text curve
-            const angleStep = (endAngle - startAngle) / (text.length - 1);
-            
-            // Draw each character along the curve
-            for (let i = 0; i < text.length; i++) {
-              const angle = startAngle + (angleStep * i);
-              const charX = coinPosition.x + Math.cos(angle) * textRadius;
-              const charY = coinPosition.y + Math.sin(angle) * textRadius;
-              
-              ctx.save();
-              ctx.translate(charX, charY);
-              ctx.rotate(angle + Math.PI / 2); // Rotate character to follow curve
-              
-              // Draw shadow
-              ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-              ctx.fillText(text[i], 1, 1);
-              
-              // Draw main character
-              ctx.fillStyle = barColor;
-              ctx.fillText(text[i], 0, 0);
-              
-              ctx.restore();
-            }
-          }
-        }
-      }
-
-      // Draw input method display based on current mode
-      if (keySequence.length > 0) {
-        // Key sequence display - show all 10 keys in a row
-        const keySpacing = 45;
-        const sequenceStartX = coinPosition.x - (keySequence.length * keySpacing) / 2;
-        const sequenceY = coinPosition.y + coinRadius + 80;
-        
-        ctx.font = 'bold 36px "Arial", sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        
-        keySequence.forEach((key, index) => {
-          const keyX = sequenceStartX + (index * keySpacing);
-          
-          // Determine color based on key state
-          if (keyStates[index] === 'correct') {
-            ctx.fillStyle = '#27ae60'; // Green
-          } else if (keyStates[index] === 'incorrect') {
-            ctx.fillStyle = '#e74c3c'; // Red
-          } else if (index === currentKeyIndex) {
-            ctx.fillStyle = '#f39c12'; // Orange for current key
-          } else {
-            ctx.fillStyle = '#7f8c8d'; // Grey for pending
-          }
-          
-          ctx.fillText(key.toUpperCase(), keyX, sequenceY);
-        });
-        
-        // Show current key instruction below the sequence
-        if (currentKeyIndex < keySequence.length) {
-          ctx.fillStyle = '#FFD700';
-          ctx.font = 'bold 24px "Arial", sans-serif';
-          ctx.fillText(`Press: ${keySequence[currentKeyIndex].toUpperCase()}`, coinPosition.x, sequenceY + 60);
-        }
-        
-        // Progress indicator
-        const progressText = `${currentKeyIndex}/${keySequence.length}`;
-        ctx.fillStyle = '#ecf0f1';
-        ctx.font = '20px "Arial", sans-serif';
-        ctx.fillText(progressText, coinPosition.x, sequenceY + 90);
-      }
-
-      // Draw score (top right)
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 24px "Orbitron", "Courier New", monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText(`Score: ${score}`, canvasSize.width - 20, 50);
-
-      // Draw instructions
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '16px "Press Start 2P", "Courier New", monospace';
+      // Draw score
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 48px "Orbitron", "Courier New", monospace';
       ctx.textAlign = 'center';
+      ctx.fillText(`Score: ${score}`, canvasSize.width / 2, 100);
+
+      // Draw coin pile
+      const pileHeight = drawCoinPile(ctx, currentRewardValue, coinPosition);
+
+      // Draw key sequence
+      const sequenceY = pileHeight + 120;
+      ctx.font = '24px "Orbitron", "Courier New", monospace';
+      ctx.textAlign = 'center';
+      
+      // Add safety check for keySequence
+      if (keySequence.length > 0) {
+        keySequence.forEach((key, index) => {
+          let color = '#FFFFFF';
+          if (index < currentKeyIndex) {
+            color = '#00FF00'; // Completed
+          } else if (index === currentKeyIndex) {
+            color = '#FFFF00'; // Current
+          }
+          
+          ctx.fillStyle = color;
+          ctx.fillText(key.toUpperCase(), canvasSize.width / 2 + (index - keySequence.length / 2) * 40, sequenceY);
+        });
+      }
+
+      // Draw "Press:" text
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '20px "Press Start 2P", "Courier New", monospace';
+      ctx.textAlign = 'center';
+      // Add safety check for keySequence and currentKeyIndex
+      if (keySequence.length > 0 && currentKeyIndex < keySequence.length) {
+        ctx.fillText(`Press: ${keySequence[currentKeyIndex].toUpperCase()}`, canvasSize.width / 2, sequenceY + 40);
+      }
 
       // Draw reward animation if active
       if (showRewardAnimation) {
@@ -931,7 +876,7 @@ const Game = ({ participantData, participantId, onGameComplete }) => {
       ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
       
       // Block completed message
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#FFFFFF';
       ctx.font = 'bold 32px "Orbitron", "Courier New", monospace';
       ctx.textAlign = 'center';
       ctx.fillText('Block 1 Complete!', canvasSize.width / 2, canvasSize.height / 2 - 100);
@@ -944,7 +889,7 @@ const Game = ({ participantData, participantId, onGameComplete }) => {
       ctx.font = 'bold 24px "Orbitron", "Courier New", monospace';
       ctx.fillText(`Current Score: ${score}`, canvasSize.width / 2, canvasSize.height / 2 + 100);
     } else {
-      
+      // Debug state
       ctx.fillStyle = '#ff0000';
       ctx.font = 'bold 24px "Arial", sans-serif';
       ctx.textAlign = 'center';
@@ -959,10 +904,10 @@ const Game = ({ participantData, participantId, onGameComplete }) => {
 
   // Handle game completion when rich environment ends
   useEffect(() => {
-    // End after rich environment reaches round 19 (19 rounds completed)
+    // End after rich environment reaches round 21 (21 rounds completed)
     if (currentEnvironment === 'rich' && environmentRound >= 21 && !gameCompletedRef.current) {
-              console.log('RICH ENVIRONMENT COMPLETE - ENDING GAME (round 21 reached)');
-      console.log(' Current trial data:', trialData);
+      console.log('RICH ENVIRONMENT COMPLETE - ENDING GAME (round 21 reached)');
+      console.log('Current trial data:', trialData);
       console.log('Trial data length:', trialData.length);
       
       setGameActive(false);
@@ -1016,8 +961,8 @@ const Game = ({ participantData, participantId, onGameComplete }) => {
       
       // Add detailed console output for final data
       console.log('FINAL SESSION DATA BREAKDOWN:');
-              console.log('Participant Info:', cleanSessionData.participantData);
-              console.log('Session Summary:', {
+      console.log('Participant Info:', cleanSessionData.participantData);
+      console.log('Session Summary:', {
         totalTrials: cleanSessionData.summary.totalTrials,
         poorTrials: cleanSessionData.summary.poorEnvironmentTrials,
         richTrials: cleanSessionData.summary.richEnvironmentTrials,
@@ -1026,13 +971,13 @@ const Game = ({ participantData, participantId, onGameComplete }) => {
       });
       
       // Fix the trials access - use allTrials instead of trials
-              console.log('All Trials:', cleanSessionData.allTrials);
-              console.log('Poor Environment Trials:', cleanSessionData.allTrials.filter(t => t.environment === 'poor'));
+      console.log('All Trials:', cleanSessionData.allTrials);
+      console.log('Poor Environment Trials:', cleanSessionData.allTrials.filter(t => t.environment === 'poor'));
       console.log('Rich Environment Trials:', cleanSessionData.allTrials.filter(t => t.environment === 'rich'));
       
       // Add error checking for environment summaries
       if (cleanSessionData.environmentSummaries) {
-        console.log(' Environment Summaries:', {
+        console.log('Environment Summaries:', {
           poor: cleanSessionData.environmentSummaries.poor,
           rich: cleanSessionData.environmentSummaries.rich
         });
@@ -1042,15 +987,20 @@ const Game = ({ participantData, participantId, onGameComplete }) => {
       
       console.log('Overall Summary:', cleanSessionData.summary);
       
-      // Save as ONE comprehensive file
-      saveSessionData(cleanSessionData).then(() => {
-        console.log('Session data saved, calling onGameComplete');
+      // Save session under participant subcollection only
+      if (participantId) {
+        saveParticipantSession(participantId, cleanSessionData).then(() => {
+          console.log('Session data saved, calling onGameComplete');
+          onGameComplete?.(cleanSessionData);
+        }).catch((error) => {
+          console.error('Failed to save session data:', error);
+          // Still call onGameComplete even if save fails
+          onGameComplete?.(cleanSessionData);
+        });
+      } else {
+        // Fallback if no participantId
         onGameComplete?.(cleanSessionData);
-      }).catch((error) => {
-        console.error('Failed to save session data:', error);
-        // Still call onGameComplete even if save fails
-        onGameComplete?.(cleanSessionData);
-      });
+      }
     }
   }, [currentEnvironment, environmentRound, gameCompletedRef, participantId, participantData, sessionStartTime, score, totalCoinsCollected, trialData, onGameComplete]);
 
@@ -1081,7 +1031,6 @@ const Game = ({ participantData, participantId, onGameComplete }) => {
             backgroundColor: '#000000' // Fallback background
           }}
         />
-
       </div>
     </div>
   );

@@ -82,28 +82,27 @@
 }
 
 /* Overview page styles */
-.overview-phases {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
+.phase-overview {
   margin: 2rem 0;
 }
 
-.phase-preview {
-  background: linear-gradient(135deg, #f8f9fa, #e9ecef);
-  border: 2px solid #dee2e6;
-  border-radius: 8px;
-  padding: 1.5rem;
-  text-align: center;
+.phase-item {
+  padding: 0.5rem;
+  text-align: left;
+  margin-bottom: 0.25rem;
 }
 
-.phase-preview h3 {
+.phase-item:last-child {
+  margin-bottom: 0;
+}
+
+.phase-item h3 {
   color: #3498db;
   margin-top: 0;
   margin-bottom: 1rem;
 }
 
-.phase-preview p {
+.phase-item p {
   margin-bottom: 0;
   font-weight: 500;
 }
@@ -335,14 +334,13 @@
   }
 
   /* Overview page responsive */
-  .overview-phases {
-    grid-template-columns: 1fr;
-    gap: 1rem;
+  .phase-overview {
     margin: 1.5rem 0;
   }
 
-  .phase-preview {
+  .phase-item {
     padding: 1rem;
+    margin-bottom: 1rem;
   }
 
   /* Phase detail pages responsive */

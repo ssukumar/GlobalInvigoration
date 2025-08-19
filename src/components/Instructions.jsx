@@ -12,30 +12,30 @@ const Instructions = ({ onStart, onPractice, currentPage = 0, setCurrentPage }) 
       title: "Game Overview",
       content: (
         <div className="instructions-content">
-          <h2>Welcome to the Movement and Reward Game!</h2>
+          <h2>Welcome to the Global Invigoration Study!</h2>
           <p>
-            You will play a game with <strong>two phases</strong>. 
+            You will play a game with <strong>two tasks</strong>. 
             Your goal is to earn as many points as possible by following the on-screen instructions.
           </p>
-          <div className="overview-phases">
-            <div className="phase-preview">
-              <h3>Phase 1: Movement Task</h3>
+          <div className="phase-overview">
+            <div className="phase-item">
+              <h3>Task 1: Movement Task</h3>
               <p>Move your cursor between bars at a steady pace</p>
             </div>
-            <div className="phase-preview">
-              <h3>Phase 2: Reward Collection</h3>
+            <div className="phase-item">
+              <h3>Task 2: Reward Collection</h3>
               <p>Press the keys in the sequence to collect your reward</p>
             </div>
           </div>
-          <p>Let's learn about each phase in detail...</p>
+          <p>Let's learn about each task in detail...</p>
         </div>
       )
     },
     {
-      title: "Phase 1: Movement Task",
+      title: "Task 1: Movement Task",
       content: (
         <div className="instructions-content">
-          <h2>Movement Phase Details</h2>
+          <h2>Movement Task Details</h2>
           <div className="phase-visual">
             <div className="visual-description">
               <h3>What you'll see:</h3>
@@ -56,7 +56,7 @@ const Instructions = ({ onStart, onPractice, currentPage = 0, setCurrentPage }) 
       )
     },
     {
-      title: "Phase 2: Reward Collection",
+      title: "Task 2: Reward Collection",
       content: (
         <div className="instructions-content">
           <h2>Reward Collection Details</h2>
@@ -65,7 +65,7 @@ const Instructions = ({ onStart, onPractice, currentPage = 0, setCurrentPage }) 
               <h3>What happens:</h3>
               <ul>
                 <li>After an unknown amount of time, the <strong>bars disappear</strong></li>
-                <li>An <strong>item</strong> appears in the center of the screen</li>
+                <li>After some time, you may be given the option to collect a reward</li>
                 <li>You will need to collect your reward</li>
               </ul>
             </div>
@@ -93,8 +93,8 @@ const Instructions = ({ onStart, onPractice, currentPage = 0, setCurrentPage }) 
           <div className="final-reminder">
             <h3>Quick Reminder:</h3>
             <ol>
-              <li><strong>Phase 1:</strong> Move cursor between blue bars</li>
-              <li><strong>Phase 2:</strong> Follow the key sequence to collect the reward</li>
+              <li><strong>Task 1:</strong> Move cursor between blue bars</li>
+              <li><strong>Task 2:</strong> Follow the key sequence to collect the reward</li>
             </ol>
           </div>
         </div>

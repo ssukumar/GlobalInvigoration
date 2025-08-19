@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { getRandomRoundDuration, getRandomKeySequence, GAME_CONFIG } from '../config/gameConfig';
 import './game/Game.css';
 
 const PracticeMode = ({ onPracticeComplete }) => {
@@ -6,14 +7,14 @@ const PracticeMode = ({ onPracticeComplete }) => {
   const [timeLeft, setTimeLeft] = useState(8); // Will be set to random duration when practice starts
   const [score, setScore] = useState(0);
   const [lastClicked, setLastClicked] = useState(null);
-  const [gamePhase, setGamePhase] = useState('circles'); // 'circles' or 'coin'
+  const [gamePhase, setGamePhase] = useState('reaching'); // 'reaching' or 'coin'
   const [coinClicks, setCoinClicks] = useState(0);
   const [coinVisible, setCoinVisible] = useState(false);
   const [currentRound, setCurrentRound] = useState(1);
   const [totalCoinsCollected, setTotalCoinsCollected] = useState(0);
   const [canvasSize, setCanvasSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [showSpeedWarning, setShowSpeedWarning] = useState(false);
-  const [showPlusTwenty, setShowPlusTwenty] = useState(false);
+  const [showPlusFifty, setShowPlusFifty] = useState(false);
   const canvasRef = useRef(null);
   const gameCompletedRef = useRef(false);
   const lastBarSwitchTime = useRef(null);
@@ -22,27 +23,27 @@ const PracticeMode = ({ onPracticeComplete }) => {
   // Key sequence state
   const [keySequence, setKeySequence] = useState([]);
   const [currentKeyIndex, setCurrentKeyIndex] = useState(0);
+  const [keyStates, setKeyStates] = useState([]); // Track status of each key: 'pending', 'correct', 'incorrect'
+
+  // Cursor position state for custom cursor
+  const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
 
   const totalRounds = 2; // Practice mode only has 2 trials
 
-  // Generate random round duration (8, 10, or 12 seconds)
-  const getRandomRoundDuration = () => {
-    const durations = [8, 10, 12];
-    return durations[Math.floor(Math.random() * durations.length)];
+  // Use config function for random round duration
+  const handleRandomRoundDuration = () => {
+    return getRandomRoundDuration();
   };
 
-  // Generate random key sequence
+  // Generate key sequence from config
   const generateKeySequence = () => {
-    const keys = ['w', 'a', 's', 'd'];
-    const sequence = [];
-    const sequenceLength = 10; // Always 10 keys
-    
-    for (let i = 0; i < sequenceLength; i++) {
-      sequence.push(keys[Math.floor(Math.random() * keys.length)]);
-    }
+    const sequence = getRandomKeySequence();
+    const sequenceLength = GAME_CONFIG.KEYS.PRACTICE_SEQUENCE_LENGTH;
     
     setKeySequence(sequence);
     setCurrentKeyIndex(0);
+    // Initialize all keys as pending
+    setKeyStates(new Array(sequenceLength).fill('pending'));
   };
 
   // Bar dimensions
@@ -63,13 +64,18 @@ const PracticeMode = ({ onPracticeComplete }) => {
     height: barHeight
   };
 
-  // Coin position (center of screen, moved up slightly)
+  // Coin position (center of screen, moved up more to center between score and sequence)
   const coinPosition = {
     x: canvasSize.width / 2,
-    y: canvasSize.height / 2 - 60
+    y: canvasSize.height / 2 - 80
   };
 
-  const coinRadius = Math.min(canvasSize.width, canvasSize.height) * 0.12;
+  // Dynamic coin radius based on reward value (practice always uses practice value)
+  const getCoinRadius = () => {
+    const baseRadius = Math.min(canvasSize.width, canvasSize.height) * 0.12;
+    // Practice mode uses the practice reward value, so we'll make it medium-sized
+    return baseRadius * 0.85; // Medium coin (85% of base size)
+  };
 
   // Handle window resize
   useEffect(() => {
@@ -80,9 +86,9 @@ const PracticeMode = ({ onPracticeComplete }) => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Timer for circle phase
+  // Timer for reaching phase
   useEffect(() => {
-    if (gameActive && gamePhase === 'circles') {
+    if (gameActive && gamePhase === 'reaching') {
       const timer = setInterval(() => {
         setTimeLeft(prev => {
           if (prev <= 1) {
@@ -107,21 +113,29 @@ const PracticeMode = ({ onPracticeComplete }) => {
       const expectedKey = keySequence[currentKeyIndex];
       
       if (pressedKey === expectedKey) {
+        // Mark key as correct
+        setKeyStates(prev => {
+          const newStates = [...prev];
+          newStates[currentKeyIndex] = 'correct';
+          return newStates;
+        });
+        
         setCurrentKeyIndex(prev => {
           const nextIndex = prev + 1;
           if (nextIndex >= keySequence.length) {
             // Sequence completed, coin collected
-            setScore(prev => prev + 100);
-            setShowPlusTwenty(true);
-            // Hide +20 animation after 2 seconds
+            setScore(prev => prev + GAME_CONFIG.REWARDS.PRACTICE_VALUE);
+            setShowPlusFifty(true);
+            // Hide +50 animation after 2 seconds
             setTimeout(() => {
-              setShowPlusTwenty(false);
+              setShowPlusFifty(false);
             }, 2000);
             setTotalCoinsCollected(prev => prev + 1);
             if (currentRound >= totalRounds) {
               // Practice complete - return to instructions
               setGameActive(false);
               setKeySequence([]); // Clear sequence when practice is complete
+              setKeyStates([]); // Clear key states
               if (!gameCompletedRef.current) {
                 gameCompletedRef.current = true;
                 setTimeout(() => {
@@ -131,17 +145,36 @@ const PracticeMode = ({ onPracticeComplete }) => {
             } else {
               // Start next round
               setCurrentRound(prev => prev + 1);
-              setGamePhase('circles');
-              setTimeLeft(getRandomRoundDuration());
+              setGamePhase('reaching');
+              setTimeLeft(handleRandomRoundDuration());
               setCoinVisible(false);
               setCoinClicks(0);
               setLastClicked(null);
               setKeySequence([]); // Clear sequence for next round
+              setKeyStates([]); // Clear key states for next round
             }
             return 0; // Reset for next round
           }
           return nextIndex;
         });
+      } else {
+        // Mark key as incorrect but don't advance
+        setKeyStates(prev => {
+          const newStates = [...prev];
+          newStates[currentKeyIndex] = 'incorrect';
+          return newStates;
+        });
+        
+        // Reset the incorrect key to pending after a brief delay
+        setTimeout(() => {
+          setKeyStates(prev => {
+            const newStates = [...prev];
+            if (newStates[currentKeyIndex] === 'incorrect') {
+              newStates[currentKeyIndex] = 'pending';
+            }
+            return newStates;
+          });
+        }, 500);
       }
     };
 
@@ -157,6 +190,9 @@ const PracticeMode = ({ onPracticeComplete }) => {
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
+
+    // Update cursor position for custom cursor drawing
+    setCursorPosition({ x, y });
 
     // Bar hover logic (no points, just visual feedback)
     if (
@@ -199,7 +235,8 @@ const PracticeMode = ({ onPracticeComplete }) => {
   // Start game when component mounts
   useEffect(() => {
     setGameActive(true);
-    setTimeLeft(getRandomRoundDuration()); // Set random duration for first round
+    setGamePhase('reaching');
+    setTimeLeft(handleRandomRoundDuration()); // Set random duration for first round
   }, []);
 
   // Cleanup speed warning timeout on unmount
@@ -209,6 +246,32 @@ const PracticeMode = ({ onPracticeComplete }) => {
         clearTimeout(speedWarningTimeout.current);
       }
     };
+  }, []);
+
+  // Handle cursor visibility based on game phase
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Remove existing cursor classes
+    canvas.classList.remove('cursor-visible', 'cursor-hidden');
+
+    if (gamePhase === 'coin') {
+      // Hide cursor during reward collection
+      canvas.classList.add('cursor-hidden');
+    } else {
+      // Show yellow circle cursor during reaching phase
+      canvas.classList.add('cursor-visible');
+    }
+  }, [gamePhase]);
+
+  // Set initial cursor class when component mounts
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      // Start with visible cursor since practice starts in 'reaching' phase
+      canvas.classList.add('cursor-visible');
+    }
   }, []);
 
   // Draw the game
@@ -223,8 +286,8 @@ const PracticeMode = ({ onPracticeComplete }) => {
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
 
-    if (gamePhase === 'circles') {
-      // Always draw bars during circles phase
+    if (gamePhase === 'reaching') {
+      // Always draw bars during reaching phase
       // Draw left bar
       ctx.beginPath();
       ctx.rect(leftBar.x, leftBar.y, leftBar.width, leftBar.height);
@@ -243,30 +306,30 @@ const PracticeMode = ({ onPracticeComplete }) => {
       ctx.lineWidth = 3;
       ctx.stroke();
 
-      // Draw gray circle with question mark when 3 seconds or less remain
-      if (timeLeft <= 3) {
-        // Draw gray circle at coin position
-        ctx.beginPath();
-        ctx.arc(coinPosition.x, coinPosition.y, coinRadius, 0, 2 * Math.PI);
-        ctx.fillStyle = '#808080'; // Gray color
-        ctx.fill();
-        ctx.strokeStyle = '#606060'; // Darker gray border
-        ctx.lineWidth = 3;
-        ctx.stroke();
-        
-        // Draw question mark in the center of the circle
-        ctx.fillStyle = '#ffffff'; // White text
-        ctx.font = `bold ${coinRadius * 0.8}px "Arial", sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('?', coinPosition.x, coinPosition.y);
-      }
+              // Draw gray circle with question mark when 3 seconds or less remain
+        if (timeLeft <= 3) {
+          // Draw gray circle at coin position
+          ctx.beginPath();
+          ctx.arc(coinPosition.x, coinPosition.y, getCoinRadius(), 0, 2 * Math.PI);
+          ctx.fillStyle = '#808080'; // Gray color
+          ctx.fill();
+          ctx.strokeStyle = '#606060'; // Darker gray border
+          ctx.lineWidth = 3;
+          ctx.stroke();
+          
+          // Draw question mark in the center of the circle
+          ctx.fillStyle = '#ffffff'; // White text
+          ctx.font = `bold ${getCoinRadius() * 0.8}px "Arial", sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('?', coinPosition.x, coinPosition.y);
+        }
 
-      // Draw score (top right, outside bars)
+      // Draw score (centered, bigger)
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 24px "Orbitron", "Courier New", monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText(`Score: ${score}`, canvasSize.width - barWidth - 20, 50);
+      ctx.font = 'bold 48px "Orbitron", "Courier New", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`Score: ${score}`, canvasSize.width / 2, 80);
 
       // Draw instructions
       ctx.fillStyle = '#ffffff';
@@ -282,142 +345,138 @@ const PracticeMode = ({ onPracticeComplete }) => {
         ctx.fillText('Move Faster!', canvasSize.width / 2, canvasSize.height - 100);
       }
 
-      // Draw +100 animation if active
-      if (showPlusTwenty) {
+      // Draw +50 animation if active
+      if (showPlusFifty) {
         ctx.fillStyle = '#00FF00';
         ctx.font = 'bold 36px "Orbitron", "Courier New", monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('+100', canvasSize.width / 2, canvasSize.height / 2 - 100);
+        ctx.fillText(`+${GAME_CONFIG.REWARDS.PRACTICE_VALUE}`, canvasSize.width / 2, canvasSize.height / 2 - 100);
       }
     } else if (gamePhase === 'coin') {
       // No bars drawn during coin phase - participant focuses only on coin
 
       // Draw coin
       if (coinVisible) {
-        // Main coin body with gradient
-        const gradient = ctx.createRadialGradient(
-          coinPosition.x - coinRadius * 0.3, 
-          coinPosition.y - coinRadius * 0.3, 
-          0,
-          coinPosition.x, 
-          coinPosition.y, 
-          coinRadius
-        );
-        gradient.addColorStop(0, '#FFD700'); // Bright gold center
-        gradient.addColorStop(0.7, '#FFA500'); // Orange gold
-        gradient.addColorStop(1, '#FF8C00'); // Darker orange edge
+                        // Draw practice coin pile (50 points = 10 coins)
+        const drawPracticeCoinPile = (centerX, centerY) => {
+          const coinRadius = 20; // All coins are the same size
+          const numCoins = 10;
+          const baseWidth = 4;
+          
+          // Calculate spacing for slight overlap
+          const spacing = coinRadius * 1.8;
+          
+          // Draw coins in pyramid formation
+          let coinIndex = 0;
+          for (let row = 0; row < baseWidth; row++) {
+            const coinsInRow = row + 1;
+            const rowY = centerY + (row * spacing * 0.8);
+            const rowStartX = centerX - ((coinsInRow - 1) * spacing) / 2;
+            
+            for (let col = 0; col < coinsInRow && coinIndex < numCoins; col++) {
+              const coinX = rowStartX + (col * spacing);
+              
+              // Draw single coin
+              ctx.beginPath();
+              ctx.arc(coinX, rowY, coinRadius, 0, 2 * Math.PI);
+              
+              // Create uniform gold gradient
+              const gradient = ctx.createRadialGradient(
+                coinX - coinRadius * 0.3,
+                rowY - coinRadius * 0.3,
+                0,
+                coinX,
+                rowY,
+                coinRadius
+              );
+              gradient.addColorStop(0, '#FFD700'); // Bright gold center
+              gradient.addColorStop(0.7, '#FFA500'); // Orange gold mid
+              gradient.addColorStop(1, '#FF8C00'); // Dark orange edge
+              
+              ctx.fillStyle = gradient;
+              ctx.fill();
+              
+              // Coin border
+              ctx.strokeStyle = '#FF8C00'; // Dark orange border
+              ctx.lineWidth = 2;
+              ctx.stroke();
+
+              // Simple dark vertical bar in the middle
+              ctx.fillStyle = '#B8860B'; // Dark gold bar
+              ctx.fillRect(
+                coinX - coinRadius * 0.1,
+                rowY - coinRadius * 0.4,
+                coinRadius * 0.2,
+                coinRadius * 0.8
+              );
+              
+              coinIndex++;
+            }
+          }
+        };
         
-        ctx.beginPath();
-        ctx.arc(coinPosition.x, coinPosition.y, coinRadius, 0, 2 * Math.PI);
-        ctx.fillStyle = gradient;
-        ctx.fill();
+        // Draw the practice coin pile
+        drawPracticeCoinPile(coinPosition.x, coinPosition.y);
         
-        // Coin border
-        ctx.strokeStyle = '#B8860B';
-        ctx.lineWidth = 4;
-        ctx.stroke();
-        
-        // Simple dark vertical bar in the middle
-        ctx.fillStyle = '#8B4513';
-        ctx.fillRect(
-          coinPosition.x - coinRadius * 0.1, 
-          coinPosition.y - coinRadius * 0.4, 
-          coinRadius * 0.2, 
-          coinRadius * 0.8
-        );
-        
-        // Border around the vertical bar
-        ctx.strokeStyle = '#B8860B';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(
-          coinPosition.x - coinRadius * 0.1, 
-          coinPosition.y - coinRadius * 0.4, 
-          coinRadius * 0.2, 
-          coinRadius * 0.8
-        );
-        
-        // Display reward value curved around top of coin like US currency
-        const text = '100';
-        const fontSize = coinRadius * 0.4;
-        ctx.font = `bold ${fontSize}px "Arial", sans-serif`;
+        // Draw the reward value below the coin pile in gold text
+        ctx.fillStyle = '#FFD700'; // Gold text
+        ctx.font = 'bold 24px "Arial", sans-serif';
         ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
+        ctx.textBaseline = 'top';
         
-        // Calculate position for curved text at top of coin
-        const textRadius = coinRadius * 0.7; // Distance from center to text
-        // Adjust angle spread based on number of characters (same as main game)
-        const baseSpread = 0.055; // Base spread in terms of π
-        const charSpread = 0.025; // Additional spread per character
-        const totalSpread = baseSpread + (charSpread * (text.length - 1));
-        const startAngle = -Math.PI * (0.5 + totalSpread); // Start angle for text curve
-        const endAngle = -Math.PI * (0.5 - totalSpread); // End angle for text curve
-        const angleStep = (endAngle - startAngle) / (text.length - 1);
-        
-        // Draw each character along the curve
-        for (let i = 0; i < text.length; i++) {
-          const angle = startAngle + (angleStep * i);
-          const charX = coinPosition.x + Math.cos(angle) * textRadius;
-          const charY = coinPosition.y + Math.sin(angle) * textRadius;
-          
-          ctx.save();
-          ctx.translate(charX, charY);
-          ctx.rotate(angle + Math.PI / 2); // Rotate character to follow curve
-          
-          // Draw shadow
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-          ctx.fillText(text[i], 1, 1);
-          
-          // Draw main character
-          ctx.fillStyle = '#8B4513'; // Dark brown matching the vertical bar
-          ctx.fillText(text[i], 0, 0);
-          
-          ctx.restore();
-        }
+        // Practice pile height (10 coins = 4 rows = 80px height)
+        const pileHeight = 80;
+        ctx.fillText('50 points', coinPosition.x, coinPosition.y + pileHeight + 30);
       }
 
       // Draw key sequence display
       if (keySequence.length > 0) {
-        // Current key display (only if sequence not completed)
+        // Key sequence display - show all 10 keys in a row
+        const keySpacing = 45;
+        const sequenceStartX = coinPosition.x - (keySequence.length * keySpacing) / 2;
+        // Position below the practice coin pile (pile height = 80) - moved lower for better spacing
+        const sequenceY = coinPosition.y + 80 + 120;
+        
+        ctx.font = 'bold 36px "Arial", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        keySequence.forEach((key, index) => {
+          const keyX = sequenceStartX + (index * keySpacing);
+          
+          // Determine color based on key state
+          if (keyStates[index] === 'correct') {
+            ctx.fillStyle = '#27ae60'; // Green
+          } else if (keyStates[index] === 'incorrect') {
+            ctx.fillStyle = '#e74c3c'; // Red
+          } else if (index === currentKeyIndex) {
+            ctx.fillStyle = '#f39c12'; // Orange for current key
+          } else {
+            ctx.fillStyle = '#7f8c8d'; // Grey for pending
+          }
+          
+          ctx.fillText(key.toUpperCase(), keyX, sequenceY);
+        });
+        
+        // Show current key instruction below the sequence
         if (currentKeyIndex < keySequence.length) {
-          const currentKey = keySequence[currentKeyIndex];
           ctx.fillStyle = '#FFD700';
-          ctx.font = 'bold 48px "Arial", sans-serif';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(currentKey.toUpperCase(), coinPosition.x, coinPosition.y + coinRadius + 50);
+          ctx.font = 'bold 24px "Arial", sans-serif';
+          ctx.fillText(`Press: ${keySequence[currentKeyIndex].toUpperCase()}`, coinPosition.x, sequenceY + 40);
         }
         
-        // Progress bar for key sequence
-        const progressBarWidth = coinRadius * 4;
-        const progressBarHeight = 30;
-        const progressBarX = coinPosition.x - progressBarWidth / 2;
-        const progressBarY = coinPosition.y + coinRadius + 100;
-        const progressFill = (currentKeyIndex / keySequence.length) * progressBarWidth;
-
-        // Progress bar background
-        ctx.fillStyle = '#34495e';
-        ctx.fillRect(progressBarX, progressBarY, progressBarWidth, progressBarHeight);
-
-        // Progress bar fill
-        if (currentKeyIndex > 0) {
-          const gradient = ctx.createLinearGradient(progressBarX, progressBarY, progressBarX + progressBarWidth, progressBarY);
-          gradient.addColorStop(0, '#27ae60');
-          gradient.addColorStop(1, '#2ecc71');
-          ctx.fillStyle = gradient;
-          ctx.fillRect(progressBarX, progressBarY, progressFill, progressBarHeight);
-        }
-
-        // Progress bar border
-        ctx.strokeStyle = '#2c3e50';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(progressBarX, progressBarY, progressBarWidth, progressBarHeight);
+        // Progress indicator
+        const progressText = `${currentKeyIndex}/${keySequence.length}`;
+        ctx.fillStyle = '#ecf0f1';
+        ctx.font = '20px "Arial", sans-serif';
+        ctx.fillText(progressText, coinPosition.x, sequenceY + 65);
       }
 
-      // Draw score (top right)
+      // Draw score (centered, bigger)
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 24px "Orbitron", "Courier New", monospace';
-      ctx.textAlign = 'right';
-      ctx.fillText(`Score: ${score}`, canvasSize.width - 20, 50);
+      ctx.font = 'bold 48px "Orbitron", "Courier New", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`Score: ${score}`, canvasSize.width / 2, 80);
 
       // Draw instructions
       ctx.fillStyle = '#ffffff';
@@ -429,16 +488,28 @@ const PracticeMode = ({ onPracticeComplete }) => {
         ctx.fillText('Get ready to follow the key sequence!', canvasSize.width / 2, canvasSize.height - 50);
       }
 
-      // Draw +100 animation if active
-      if (showPlusTwenty) {
+      // Draw +50 animation if active
+      if (showPlusFifty) {
         ctx.fillStyle = '#00FF00';
         ctx.font = 'bold 36px "Orbitron", "Courier New", monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('+100', canvasSize.width / 2, canvasSize.height / 2 - 100);
+        ctx.fillText(`+${GAME_CONFIG.REWARDS.PRACTICE_VALUE}`, canvasSize.width / 2, canvasSize.height / 2 - 100);
+      }
+
+      // Draw custom cursor (only during reaching phase)
+      if (gamePhase === 'reaching' && gameActive) {
+        // Draw yellow circle cursor
+        ctx.beginPath();
+        ctx.arc(cursorPosition.x, cursorPosition.y, 8, 0, 2 * Math.PI);
+        ctx.fillStyle = '#FFD700'; // Bright yellow
+        ctx.fill();
+        ctx.strokeStyle = '#FFA500'; // Orange border
+        ctx.lineWidth = 2;
+        ctx.stroke();
       }
     }
 
-  }, [timeLeft, score, lastClicked, gamePhase, coinVisible, coinClicks, currentRound, totalRounds, canvasSize, showSpeedWarning, showPlusTwenty, keySequence, currentKeyIndex]);
+  }, [timeLeft, score, lastClicked, gamePhase, coinVisible, coinClicks, currentRound, totalRounds, canvasSize, showSpeedWarning, showPlusFifty, keySequence, currentKeyIndex, keyStates, cursorPosition, gameActive]);
 
   return (
     <div className="game-container">

@@ -15,14 +15,18 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const database = getFirestore(app);
 
-const subjectsCollection = collection(database, 'subjects');
-const trialsCollection = collection(database, 'trials');
-const gamesCollection = collection(database, 'games');
+const subjectsCollection = collection(database, 'globalInvigorationSubjects');
+const trialsCollection = collection(database, 'globalInvigorationTrials');
+const gamesCollection = collection(database, 'globalInvigorationGames');
 
 export const saveSubjectData = async (subjectData) => {
     try {
-        // Generate a unique ID for the subject if not provided
-        const subjectId = subjectData.id || `subject_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        // Use the provided participant ID (e.g., gb_1, gb_2) as the document ID
+        const subjectId = subjectData.id;
+        if (!subjectId) {
+            throw new Error('Subject ID is required');
+        }
+        
         const documentReference = doc(subjectsCollection, subjectId);
         const savedDocument = await setDoc(documentReference, {
             ...subjectData,

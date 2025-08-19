@@ -20,11 +20,11 @@ export const GAME_CONFIG = {
     strokeWidth: 4,
     colors: {
       bronze: {
-        center: '#CD7F32',
-        mid: '#B8722C',
-        edge: '#A0621E',
-        border: '#8B5A1F',
-        bar: '#654321'
+        center: '#8B4513',
+        mid: '#A0522D',
+        edge: '#654321',
+        border: '#5D4037',
+        bar: '#3E2723'
       },
       silver: {
         center: '#C0C0C0',
@@ -34,11 +34,11 @@ export const GAME_CONFIG = {
         bar: '#555555'
       },
       gold: {
-        center: '#FFD700',
-        mid: '#FFA500',
-        edge: '#FF8C00',
-        border: '#B8860B',
-        bar: '#8B4513'
+        center: '#FFFF00',
+        mid: '#FFEB3B',
+        edge: '#FFC107',
+        border: '#FF9800',
+        bar: '#B8860B'
       },
       gray: {
         fill: '#f0f0f0',
