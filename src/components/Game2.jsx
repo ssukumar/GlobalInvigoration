@@ -51,6 +51,11 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
   const [currentReachNumber, setCurrentReachNumber] = useState(1);
   const [lastWallPosition, setLastWallPosition] = useState(null);
   const [currentKeytapNumber, setCurrentKeytapNumber] = useState(1);
+  const [lastSampleTime, setLastSampleTime] = useState(0);
+  
+  // Separate arrays for key press data (round documents)
+  const [keyPressGameStateArray, setKeyPressGameStateArray] = useState([]);
+  const [keyPressEventArray, setKeyPressEventArray] = useState([]);
   
   // Refs for tracking event states
   const rewardCueActiveRef = useRef(false);
@@ -129,6 +134,10 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
       // Keep a monotonically increasing reach counter within the round
       setCurrentReachNumber(newReachNumber);
       setCurrentKeytapNumber(1);
+      
+      // Reset key press arrays for new reach
+      setKeyPressGameStateArray([]);
+      setKeyPressEventArray([]);
     }
     
     // Update last wall position for next comparison
@@ -136,7 +145,14 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     
     // Append data to all synchronized arrays
     setGameStateArray(prev => [...prev, gameState]);
-    setEventArray(prev => [...prev, 'movement']);
+    
+    // Determine event type based on game state
+    let eventType = 'None';
+    if (timeLeft <= 3) {
+      eventType = 'RC'; // Reward cue active
+    }
+    
+    setEventArray(prev => [...prev, eventType]);
     setPosXArray(prev => [...prev, x]);
     setPosYArray(prev => [...prev, y]);
     setTimestampArray(prev => [...prev, timestamp]);
@@ -166,7 +182,7 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     );
 
     const gameStateArrayN = padToLength(arrays.gameStateArray, movementLen, null);
-    const eventArrayN = padToLength(arrays.eventArray, movementLen, 'movement');
+    const eventArrayN = padToLength(arrays.eventArray, movementLen, 'None');
     const posXArrayN = padToLength(arrays.posXArray, movementLen, null);
     const posYArrayN = padToLength(arrays.posYArray, movementLen, null);
     const timestampArrayN = padToLength(arrays.timestampArray, movementLen, null);
@@ -182,7 +198,6 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
       sessionStartTime,
       reachNumber,
       environment: currentEnvironment,
-      environmentRound,
       round: environmentRound,
       block: currentEnvironment === 'poor' ? 1 : 2,
       startWall: reachedStartWall,
@@ -191,15 +206,13 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
       eventArray: eventArrayN,
       posXArray: posXArrayN,
       posYArray: posYArrayN,
-      timestampArray: timestampArrayN,
+      reachTimestampArray: timestampArrayN,
       keytapNumberArray: keytapNumberArrayN,
       keytapValueArray: keytapValueArrayN,
       keyupTimestampArray: keyupTimestampArrayN,
       validityArray: validityArrayN,
-      totalPresses: null,
       currScore: score,
-      coinValue: null,
-      completedAt: new Date().toISOString()
+      rewardValue: currentRewardValue
     };
 
     try {
@@ -231,9 +244,9 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     const keyupTimestampArrayN = padToLength(keyupTimestampArray, keyLen, null);
     const validityArrayN = padToLength(validityArray, keyLen, null);
 
-    // Reaching placeholder arrays must match key length
-    const gameStateArrayN = makeArray(null, keyLen);
-    const eventArrayN = makeArray(null, keyLen);
+    // Use key press game states and events, with reaching placeholders
+    const gameStateArrayN = padToLength(keyPressGameStateArray, keyLen, null);
+    const eventArrayN = padToLength(keyPressEventArray, keyLen, null);
     const posXArrayN = makeArray(null, keyLen);
     const posYArrayN = makeArray(null, keyLen);
     const reachTimestampArrayN = makeArray(null, keyLen);
@@ -242,17 +255,14 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
       participantId,
       sessionStartTime,
       environment: currentEnvironment,
-      environmentRound,
       round: environmentRound,
       block: currentEnvironment === 'poor' ? 1 : 2,
       rewardValue: currentRewardValue,
-      coinValue: currentRewardValue,
       keytapNumberArray: keytapNumberArrayN,
       keytapValueArray: keytapValueArrayN,
-      timestampArray: timestampArrayN,
+      keyPressTimestampArray: timestampArrayN,
       keyupTimestampArray: keyupTimestampArrayN,
       validityArray: validityArrayN,
-      totalPresses: keyLen,
       gameStateArray: gameStateArrayN,
       eventArray: eventArrayN,
       posXArray: posXArrayN,
@@ -261,8 +271,7 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
       startWall: null,
       endWall: null,
       reachNumber: null,
-      currScore: score,
-      completedAt: new Date().toISOString()
+      currScore: score
     };
 
     try {
@@ -448,9 +457,13 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     
     // Record key press data
     setKeytapNumberArray(prev => [...prev, currentKeyIndex + 1]);
-    setKeytapValueArray(prev => [...prev, currentRewardValue]);
+    setKeytapValueArray(prev => [...prev, key]);
     setTimestampArray(prev => [...prev, timestamp]);
     setValidityArray(prev => [...prev, isValid ? 'correct' : 'incorrect']);
+    
+    // Add game state and event tracking for key pressing
+    setKeyPressGameStateArray(prev => [...prev, 'SO']); // Sequence ongoing
+    setKeyPressEventArray(prev => [...prev, 'RR']); // Reward reveal (key press)
     
     if (isValid) {
       // Correct key pressed
@@ -467,6 +480,11 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
         setTotalCoinsCollected(prev => prev + 1);
         setShowRewardAnimation(true);
         setRewardAnimationText(`+${currentRewardValue}!`);
+        
+        // Add sequence complete game state and reward receipt event
+        setKeyPressGameStateArray(prev => [...prev, 'SC']); // Sequence complete
+        setKeyPressEventArray(prev => [...prev, 'RREC']); // Reward receipt
+        
         setTimeout(() => {
           setShowRewardAnimation(false);
       }, 1000);
@@ -614,28 +632,33 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     };
   }, [gameActive, gamePhase, coinVisible, keySequence, currentKeyIndex, keyStates, currentEnvironment, currentRewardValue, participantId, participantData, sessionStartTime, onGameComplete]);
 
-  // Reset data collection arrays when starting new trial
-  useEffect(() => {
-    if (gamePhase === 'reaching') {
-      // Reset all synchronized arrays for new round
-      setGameStateArray([]);
-      setEventArray([]);
-      setPosXArray([]);
-      setPosYArray([]);
-      setStartWall(null);
-      setEndWall(null);
-      setKeytapNumberArray([]);
-      setKeytapValueArray([]);
-      setTimestampArray([]);
-      setKeyupTimestampArray([]);
-      setValidityArray([]);
+        // Reset data collection arrays when starting new trial
+      useEffect(() => {
+        if (gamePhase === 'reaching') {
+          // Reset all synchronized arrays for new round
+          setGameStateArray([]);
+          setEventArray([]);
+          setPosXArray([]);
+          setPosYArray([]);
+          setStartWall(null);
+          setEndWall(null);
+          setKeytapNumberArray([]);
+          setKeytapValueArray([]);
+          setTimestampArray([]);
+          setKeyupTimestampArray([]);
+          setValidityArray([]);
 
-      setCurrentReachNumber(1);
-      setLastWallPosition(null);
-      setCurrentKeytapNumber(1);
-      
-      // Reset event state refs
-      rewardCueActiveRef.current = false;
+          setCurrentReachNumber(1);
+          setLastWallPosition(null);
+          setCurrentKeytapNumber(1);
+          
+          // Reset key press arrays for new round
+          setKeyPressGameStateArray([]);
+          setKeyPressEventArray([]);
+          
+          // Reset sampling timer for new round
+          setLastSampleTime(0);
+          
       rewardCollectionActiveRef.current = false;
       
       console.log('Data collection arrays reset for new trial');
@@ -667,9 +690,15 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     // Current bar positions
     const { leftBar, rightBar } = getBarPositions();
 
-    // Record movement data during reaching phase using synchronized arrays
+    // Record movement data during reaching phase using synchronized arrays (30 Hz sampling)
     const timestamp = Date.now();
-    appendReachingData(x, y, timestamp);
+    const timeSinceLastSample = timestamp - lastSampleTime;
+    
+    // Only record data every ~33.3ms (30 Hz)
+    if (timeSinceLastSample >= 33) {
+      appendReachingData(x, y, timestamp);
+      setLastSampleTime(timestamp);
+    }
 
     // Bar hover logic (no points, just visual feedback)
     if (
