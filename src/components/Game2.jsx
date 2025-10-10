@@ -27,6 +27,7 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
   const [currentEnvironment, setCurrentEnvironment] = useState('poor'); // 'poor', 'break', or 'rich'
   const [environmentRound, setEnvironmentRound] = useState(1); // Round within current environment
   const [currentRewardValue, setCurrentRewardValue] = useState(0);
+  const [currentRoundRewardValue, setCurrentRoundRewardValue] = useState(0); // Reward value for current round (stable during cue)
   const [showRewardAnimation, setShowRewardAnimation] = useState(false);
   const [rewardAnimationText, setRewardAnimationText] = useState('');
 
@@ -212,7 +213,7 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
       keyupTimestampArray: keyupTimestampArrayN,
       validityArray: validityArrayN,
       currScore: score,
-      rewardValue: currentRewardValue
+      rewardValue: null
     };
 
     try {
@@ -525,6 +526,9 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
           setTimeLeft(roundDuration);
           setKeySequence(sequence);
           setKeyStates(new Array(sequence.length).fill('pending'));
+          
+          // Set the reward value for the next round
+          setRoundRewardValue(currentEnvironment, nextRound);
         }
       }
     } else {
@@ -738,6 +742,15 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     }
   };
 
+  // Helper function to calculate and set the reward value for current round
+  const setRoundRewardValue = (environment, round) => {
+    const rewardSequence = getRewardSequence(environment);
+    const rewardIndex = (round - 1) % rewardSequence.length;
+    const rewardValue = rewardSequence[rewardIndex];
+    setCurrentRoundRewardValue(rewardValue);
+    console.log(`Round ${round} reward value set to: ${rewardValue}`);
+  };
+
   // Start game
   const startGame = () => {
     setGameActive(true);
@@ -773,6 +786,9 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     setTimeLeft(roundDuration);
     setKeySequence(sequence);
     setKeyStates(new Array(sequence.length).fill('pending'));
+    
+    // Set the reward value for the first round
+    setRoundRewardValue('poor', 1);
     
     console.log('Game started with:', { roundDuration, sequence });
   };
@@ -857,8 +873,11 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
         ctx.lineWidth = 3;
         ctx.stroke();
 
-      // Draw gray circle with question mark when 3 seconds or less remain
+      // Draw gray circle with reward value when 3 seconds or less remain
       if (timeLeft <= 3) {
+        // Use the stable reward value for this round
+        const rewardValue = currentRoundRewardValue;
+        
         // Draw gray circle at coin position
         ctx.beginPath();
         ctx.arc(coinPosition.x, coinPosition.y, coinRadius, 0, 2 * Math.PI);
@@ -868,12 +887,12 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
         ctx.lineWidth = 3;
         ctx.stroke();
         
-        // Draw question mark in the center of the circle
+        // Draw reward value in the center of the circle
         ctx.fillStyle = '#ffffff'; // White text
-        ctx.font = `bold ${coinRadius * 0.8}px Arial`;
+        ctx.font = `bold ${coinRadius * 0.6}px Arial`; // Slightly smaller font for numbers
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('?', coinPosition.x, coinPosition.y);
+        ctx.fillText(rewardValue.toString(), coinPosition.x, coinPosition.y);
       }
 
       // Draw score (centered, bigger)
@@ -1077,6 +1096,9 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     setTimeLeft(roundDuration);
     setKeySequence(sequence);
     setKeyStates(new Array(sequence.length).fill('pending'));
+    
+    // Set the reward value for the first rich environment round
+    setRoundRewardValue('rich', 1);
     
     console.log('Switched to rich environment:', { roundDuration, sequence });
   };

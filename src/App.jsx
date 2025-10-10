@@ -9,7 +9,7 @@ import { initializeParticipant } from './firebase/dataCollection';
 import './App.css';
 
 function App() {
-  const [step, setStep] = useState('consent');
+  const [step, setStep] = useState('instructions');
   const [participantData, setParticipantData] = useState(null);
   const [participantId, setParticipantId] = useState(null);
   const [instructionPage, setInstructionPage] = useState(0);

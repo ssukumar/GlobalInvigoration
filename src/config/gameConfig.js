@@ -28,17 +28,9 @@ export const GAME_CONFIG = {
   REWARDS: {
     VALUES: [10, 30, 50], // Available reward values (no more 0 reward)
     PRACTICE_VALUE: 50, // Reward value for practice mode
-    PROBABILITIES: {
-      POOR: {
-        10: 0.50, // 50% chance for 10 points
-        30: 0.30, // 30% chance for 30 points
-        50: 0.20  // 20% chance for 50 points
-      },
-      RICH: {
-        10: 0.20, // 20% chance for 10 points
-        30: 0.30, // 30% chance for 30 points
-        50: 0.50  // 50% chance for 50 points
-      }
+    ARRAYS: {
+      POOR: [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 30, 30, 30, 30, 30, 30, 30, 30, 30, 50, 50, 50, 50, 50, 50], // 30 rounds for poor environment (50% 10s, 30% 30s, 20% 50s)
+      RICH: [10, 10, 10, 10, 10, 10, 30, 30, 30, 30, 30, 30, 30, 30, 30, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50]  // 30 rounds for rich environment (20% 10s, 30% 30s, 50% 50s)
     }
   },
 
@@ -70,11 +62,11 @@ export const calculateTotalRounds = (environment) => {
   const baseRounds = environment === 'poor' ? GAME_CONFIG.BLOCKS.POOR.baseRounds : GAME_CONFIG.BLOCKS.RICH.baseRounds;
   
   if (environment === 'poor') {
-    // Poor environment: baseRounds * 2 - 1 (e.g., 10 → 19, 11 → 21, 12 → 23)
-    return baseRounds * 2 - 1;
+    // Poor environment: baseRounds 
+    return baseRounds * 2;
   } else {
-    // Rich environment: baseRounds * 2 + 1 (e.g., 10 → 21, 11 → 23, 12 → 25)
-    return baseRounds * 2 + 1;
+    // Rich environment: baseRounds 
+    return baseRounds;
   }
 };
 
@@ -104,38 +96,47 @@ export const getRandomKeySequence = () => {
   return sequences[randomIndex];
 };
 
-// Helper function to select reward based on environment probabilities
-export const selectRewardByProbability = (environment) => {
-  const probabilities = GAME_CONFIG.REWARDS.PROBABILITIES[environment.toUpperCase()];
-  const random = Math.random();
-  
-  // Cumulative probability selection
-  if (random < probabilities[10]) {
-    return 10;
-  } else if (random < probabilities[10] + probabilities[30]) {
-    return 30;
-  } else {
-    return 50;
+// Helper function to shuffle an array (Fisher-Yates algorithm)
+export const shuffleArray = (array) => {
+  const shuffled = [...array]; // Create a copy to avoid mutating original
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
+  return shuffled;
 };
 
-// Helper function to generate reward sequence based on environment probabilities
+// Cache for reward sequences to ensure consistency
+const rewardSequenceCache = {
+  poor: null,
+  rich: null
+};
+
+// Helper function to generate reward sequence based on fixed arrays
 export const generateRewardSequence = (environment) => {
-  const totalRounds = calculateTotalRounds(environment);
+  const baseArray = GAME_CONFIG.REWARDS.ARRAYS[environment.toUpperCase()];
   
-  let sequence = [];
-  
-  // Generate rewards based on environment-specific probabilities
-  for (let i = 0; i < totalRounds; i++) {
-    sequence.push(selectRewardByProbability(environment));
+  // Shuffle the array and return it (array length matches round count)
+  return shuffleArray(baseArray);
+};
+
+// Helper function to get reward sequence for environment (cached)
+export const getRewardSequence = (environment) => {
+  // Return cached sequence if it exists
+  if (rewardSequenceCache[environment]) {
+    return rewardSequenceCache[environment];
   }
   
+  // Generate and cache new sequence
+  const sequence = generateRewardSequence(environment);
+  rewardSequenceCache[environment] = sequence;
   return sequence;
 };
 
-// Helper function to get reward sequence for environment
-export const getRewardSequence = (environment) => {
-  return generateRewardSequence(environment);
+// Helper function to reset reward sequence cache (for testing or new sessions)
+export const resetRewardSequenceCache = () => {
+  rewardSequenceCache.poor = null;
+  rewardSequenceCache.rich = null;
 };
 
 // Helper function to get total rounds for environment

@@ -306,7 +306,7 @@ const PracticeMode = ({ onPracticeComplete }) => {
       ctx.lineWidth = 3;
       ctx.stroke();
 
-              // Draw gray circle with question mark when 3 seconds or less remain
+              // Draw gray circle with reward value when 3 seconds or less remain
         if (timeLeft <= 3) {
           // Draw gray circle at coin position
           ctx.beginPath();
@@ -317,12 +317,12 @@ const PracticeMode = ({ onPracticeComplete }) => {
           ctx.lineWidth = 3;
           ctx.stroke();
           
-          // Draw question mark in the center of the circle
+          // Draw reward value in the center of the circle (practice mode always uses 50)
           ctx.fillStyle = '#ffffff'; // White text
-          ctx.font = `bold ${getCoinRadius() * 0.8}px "Arial", sans-serif`;
+          ctx.font = `bold ${getCoinRadius() * 0.6}px "Arial", sans-serif`; // Slightly smaller font for numbers
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText('?', coinPosition.x, coinPosition.y);
+          ctx.fillText(GAME_CONFIG.REWARDS.PRACTICE_VALUE.toString(), coinPosition.x, coinPosition.y);
         }
 
       // Draw score (centered, bigger)
