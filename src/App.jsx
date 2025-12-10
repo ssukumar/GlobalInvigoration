@@ -60,7 +60,7 @@ function App() {
       // Continue with experiment even if data collection fails
     }
     
-    setInstructionPage(0); // Start from page 1
+    setInstructionPage(1); // Start from page 1
     setStep('instructions');
   };
 

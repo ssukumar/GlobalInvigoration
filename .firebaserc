@@ -1,5 +1,11 @@
 {
   "projects": {
     "default": "cognac-movement-test"
+  },
+  "targets": {},
+  "etags": {
+    "global-invigoration-1e80c": {
+      "extensionInstances": {}
+    }
   }
 }

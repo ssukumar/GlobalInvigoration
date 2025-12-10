@@ -1,6 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { saveParticipantTrial } from '../firebase/dataCollection';
-import { getRandomRoundDuration, getRandomKeySequence, GAME_CONFIG, getRewardSequence } from '../config/gameConfig';
+import { 
+  getRandomRoundDuration, 
+  getRandomKeySequence, 
+  GAME_CONFIG, 
+  getRewardSequence,
+  getRewardSequenceForBlock,
+  getBlockEnvironment,
+  getBlockRounds,
+  getNextBlockIndex,
+  getNextBlockEnvironment,
+  getBlockTransition
+} from '../config/gameConfig';
 import './game/Game.css';
 
 const Game2 = ({ participantData, participantId, onGameComplete }) => {
@@ -23,9 +34,11 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
   const [currentKeyIndex, setCurrentKeyIndex] = useState(0);
   const [keyStates, setKeyStates] = useState([]); // Track status of each key: 'pending', 'correct', 'incorrect'
 
-  // Reward environment state
-  const [currentEnvironment, setCurrentEnvironment] = useState('poor'); // 'poor', 'break', or 'rich'
-  const [environmentRound, setEnvironmentRound] = useState(1); // Round within current environment
+  // Block and round state - using block index instead of environment string
+  const [currentBlockIndex, setCurrentBlockIndex] = useState(0); // Block index into GAME_CONFIG.BLOCKS.ORDER
+  const [currentEnvironment, setCurrentEnvironment] = useState(null); // Derived from block index
+  const [pendingNextBlockIndex, setPendingNextBlockIndex] = useState(null); // Next block during break screen
+  const [environmentRound, setEnvironmentRound] = useState(1); // Round within current block
   const [currentRewardValue, setCurrentRewardValue] = useState(0);
   const [currentRoundRewardValue, setCurrentRoundRewardValue] = useState(0); // Reward value for current round (stable during cue)
   const [showRewardAnimation, setShowRewardAnimation] = useState(false);
@@ -200,7 +213,7 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
       reachNumber,
       environment: currentEnvironment,
       round: environmentRound,
-      block: currentEnvironment === 'poor' ? 1 : 2,
+      block: currentBlockIndex + 1, // Convert 0-indexed block index to 1-indexed block number
       startWall: reachedStartWall,
       endWall: reachedEndWall,
       gameStateArray: gameStateArrayN,
@@ -217,7 +230,7 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     };
 
     try {
-      const blockNumber = currentEnvironment === 'poor' ? 1 : 2;
+      const blockNumber = currentBlockIndex + 1;
       const docId = `${participantId}_block${blockNumber}_round${environmentRound}_reach${reachNumber}`;
       await saveParticipantTrial(participantId, reachData, docId);
       console.log(`Reach ${reachNumber} data saved successfully`);
@@ -257,7 +270,7 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
       sessionStartTime,
       environment: currentEnvironment,
       round: environmentRound,
-      block: currentEnvironment === 'poor' ? 1 : 2,
+      block: currentBlockIndex + 1, // Convert 0-indexed block index to 1-indexed block number
       rewardValue: currentRewardValue,
       keytapNumberArray: keytapNumberArrayN,
       keytapValueArray: keytapValueArrayN,
@@ -276,7 +289,7 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     };
 
     try {
-      const blockNumber = currentEnvironment === 'poor' ? 1 : 2;
+      const blockNumber = currentBlockIndex + 1;
       const docId = `${participantId}_block${blockNumber}_round${environmentRound}`;
       await saveParticipantTrial(participantId, roundData, docId);
       console.log(`Round ${environmentRound} data saved successfully`);
@@ -350,7 +363,7 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
       numCoins = 3;
       baseWidth = 2;
     } else if (rewardValue === 50) {
-      numCoins = 10;
+      numCoins = 5;
       baseWidth = 4;
     } else {
       return 0;
@@ -511,24 +524,32 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
         const nextRound = environmentRound + 1;
         setEnvironmentRound(nextRound);
         
-        if (currentEnvironment === 'poor' && nextRound > GAME_CONFIG.BLOCKS.POOR.baseRounds * 2 - 1) {
-          // Switch to break
+        // Check block transition using block-based logic
+        const transition = getBlockTransition(currentBlockIndex, nextRound);
+        
+        if (transition === 'break') {
+          // Block finished, prepare to move to next block
+          const nextBlockIndex = getNextBlockIndex(currentBlockIndex);
+          setPendingNextBlockIndex(nextBlockIndex);
           setGamePhase('break');
-        } else if (currentEnvironment === 'rich' && nextRound > GAME_CONFIG.BLOCKS.RICH.baseRounds * 2 + 1) {
-          // Game completed
+        } else if (transition === 'end') {
+          // Game completed (no more blocks)
           setGameActive(false);
           gameCompletedRef.current = true;
+          
+          // Call onGameComplete to notify parent
+          onGameComplete?.();
         } else {
-          // Continue with next round
-          const roundDuration = getRandomRoundDuration(currentEnvironment);
+          // Continue with next round in current block
+          const roundDuration = getRandomRoundDuration();
           const sequence = getRandomKeySequence();
           
           setTimeLeft(roundDuration);
           setKeySequence(sequence);
           setKeyStates(new Array(sequence.length).fill('pending'));
           
-          // Set the reward value for the next round
-          setRoundRewardValue(currentEnvironment, nextRound);
+          // Set the reward value for the next round using block index
+          setRoundRewardValue(currentBlockIndex, nextRound);
         }
       }
     } else {
@@ -569,11 +590,10 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
           setGamePhase('coin');
           setCoinVisible(true);
           
-          // Get reward value from sequence
-          const rewardSequence = getRewardSequence(currentEnvironment);
-          const rewardIndex = (environmentRound - 1) % rewardSequence.length;
-          const rewardValue = rewardSequence[rewardIndex];
-          
+          // Use the stable reward value computed for the round (block-based)
+          // `setRoundRewardValue` sets `currentRoundRewardValue` earlier when a round starts.
+          // Use that value for scoring/display when the coin phase begins.
+          const rewardValue = currentRoundRewardValue;
           setCurrentRewardValue(rewardValue);
           
           // Reset key sequence state
@@ -622,7 +642,7 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     if (gamePhase === 'break') {
       const handleBreakKeyPress = (event) => {
         if (event.key === ' ') {
-          handleContinueToRich();
+          handleContinueToNextBlock();
         }
       };
       
@@ -743,20 +763,26 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
   };
 
   // Helper function to calculate and set the reward value for current round
-  const setRoundRewardValue = (environment, round) => {
-    const rewardSequence = getRewardSequence(environment);
+  const setRoundRewardValue = (blockIndex, round) => {
+    const rewardSequence = getRewardSequenceForBlock(blockIndex);
     const rewardIndex = (round - 1) % rewardSequence.length;
     const rewardValue = rewardSequence[rewardIndex];
     setCurrentRoundRewardValue(rewardValue);
-    console.log(`Round ${round} reward value set to: ${rewardValue}`);
+    const env = getBlockEnvironment(blockIndex);
+    console.log(`Block ${blockIndex} (${env}), Round ${round} reward value set to: ${rewardValue}`);
   };
 
   // Start game
   const startGame = () => {
+    const initialBlockIndex = 0;
+    const initialEnvironment = getBlockEnvironment(initialBlockIndex);
+    
     setGameActive(true);
     setScore(0);
+    setCurrentBlockIndex(initialBlockIndex);
+    setCurrentEnvironment(initialEnvironment);
     setEnvironmentRound(1);
-    setCurrentEnvironment('poor');
+    setPendingNextBlockIndex(null);
     setGamePhase('reaching');
     setCoinVisible(false);
     setLastClicked(null);
@@ -780,17 +806,17 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     setCurrentKeytapNumber(1);
     
     // Get random round duration and key sequence
-    const roundDuration = getRandomRoundDuration('poor');
+    const roundDuration = getRandomRoundDuration();
     const sequence = getRandomKeySequence();
     
     setTimeLeft(roundDuration);
     setKeySequence(sequence);
     setKeyStates(new Array(sequence.length).fill('pending'));
     
-    // Set the reward value for the first round
-    setRoundRewardValue('poor', 1);
+    // Set the reward value for the first round using block index
+    setRoundRewardValue(initialBlockIndex, 1);
     
-    console.log('Game started with:', { roundDuration, sequence });
+    console.log('Game started with:', { initialBlockIndex, initialEnvironment, roundDuration, sequence });
   };
 
   // Initialize game when component mounts - copied from working Game2.jsx
@@ -1008,7 +1034,7 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
         }
       }
     } else if (gamePhase === 'break') {
-      // Break screen between environments
+      // Break screen between blocks
       ctx.fillStyle = '#000000';
       ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
       
@@ -1019,14 +1045,25 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
       ctx.fillText(`Score: ${score}`, canvasSize.width / 2, 80);
       
       // Block completed message
+      const completedBlockNumber = currentBlockIndex + 1;
       ctx.fillStyle = '#FFFFFF';
       ctx.font = 'bold 32px "Orbitron", "Courier New", monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('Block 1 Complete!', canvasSize.width / 2, canvasSize.height / 2 - 100);
+      ctx.fillText(`Block ${completedBlockNumber} Complete!`, canvasSize.width / 2, canvasSize.height / 2 - 100);
       
       ctx.font = '20px "Orbitron", "Courier New", monospace';
       ctx.fillText('Take a short break.', canvasSize.width / 2, canvasSize.height / 2 - 40);
-      ctx.fillText('Press SPACE to continue to Block 2', canvasSize.width / 2, canvasSize.height / 2 + 40);
+      
+      // Show next block information
+      if (pendingNextBlockIndex !== null) {
+        const nextBlockNumber = pendingNextBlockIndex + 1;
+        const nextBlockEnv = getBlockEnvironment(pendingNextBlockIndex);
+        ctx.fillText(
+          `Press SPACE to continue to Block ${nextBlockNumber} (${nextBlockEnv})`,
+          canvasSize.width / 2,
+          canvasSize.height / 2 + 40
+        );
+      }
       
       // Show current score
       ctx.font = 'bold 24px "Orbitron", "Courier New", monospace';
@@ -1036,12 +1073,19 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
       showSpeedWarning, showRewardAnimation, keySequence, currentKeyIndex, keyStates, currentEnvironment, 
       currentRewardValue, rewardAnimationText, gameActive, environmentRound, leftBar, rightBar, coinPosition, coinRadius, barWidth]);
 
-  // Handle game completion when rich environment ends
+  // Handle game completion when last block ends
   useEffect(() => {
-    // End after rich environment reaches the configured number of rounds
-    const richRounds = GAME_CONFIG.BLOCKS.RICH.baseRounds * 2 + 1;
-    if (currentEnvironment === 'rich' && environmentRound >= richRounds && !gameCompletedRef.current) {
-      console.log(`RICH ENVIRONMENT COMPLETE - ENDING GAME (round ${richRounds} reached)`);
+    // Check if we've finished all blocks
+    if (!gameActive || gamePhase === 'break' || gamePhase !== 'reaching') {
+      return; // Game is not running or we're at a break
+    }
+    
+    // Check if we're past the last block
+    const nextBlockIndex = getNextBlockIndex(currentBlockIndex);
+    const blockRounds = getBlockRounds(currentBlockIndex);
+    
+    if (nextBlockIndex === null && environmentRound > blockRounds && !gameCompletedRef.current) {
+      console.log(`GAME COMPLETE - Last block finished (block ${currentBlockIndex}, round ${environmentRound})`);
       
       setGameActive(false);
       setCoinVisible(false);
@@ -1049,10 +1093,10 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
       setKeyStates([]);
       gameCompletedRef.current = true;
       
-      // Call onGameComplete without saving session data
+      // Call onGameComplete
       onGameComplete?.();
     }
-  }, [currentEnvironment, environmentRound, gameCompletedRef, onGameComplete]);
+  }, [currentBlockIndex, environmentRound, gameActive, gamePhase, gameCompletedRef, onGameComplete]);
 
   // Debug state changes
   useEffect(() => {
@@ -1065,15 +1109,25 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
   }, [currentEnvironment, environmentRound, gamePhase, gameActive]);
 
   // Handle environment switch
-  const handleContinueToRich = () => {
-    setCurrentEnvironment('rich');
+  const handleContinueToNextBlock = () => {
+    if (pendingNextBlockIndex === null) {
+      console.warn('No next block available');
+      return;
+    }
+    
+    const nextBlockIndex = pendingNextBlockIndex;
+    const nextEnvironment = getBlockEnvironment(nextBlockIndex);
+    
+    setCurrentBlockIndex(nextBlockIndex);
+    setCurrentEnvironment(nextEnvironment);
+    setPendingNextBlockIndex(null);
     setEnvironmentRound(1);
     setGamePhase('reaching');
     setCoinVisible(false);
     setLastClicked(null);
     setShowSpeedWarning(false);
     
-    // Reset data collection arrays for new environment
+    // Reset data collection arrays for new block
     setGameStateArray([]);
     setEventArray([]);
     setPosXArray([]);
@@ -1089,18 +1143,18 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     setLastWallPosition(null);
     setCurrentKeytapNumber(1);
     
-    // Get random round duration and key sequence for rich environment
-    const roundDuration = getRandomRoundDuration('rich');
+    // Get random round duration and key sequence for new block
+    const roundDuration = getRandomRoundDuration();
     const sequence = getRandomKeySequence();
     
     setTimeLeft(roundDuration);
     setKeySequence(sequence);
     setKeyStates(new Array(sequence.length).fill('pending'));
     
-    // Set the reward value for the first rich environment round
-    setRoundRewardValue('rich', 1);
+    // Set the reward value for the first round of the new block
+    setRoundRewardValue(nextBlockIndex, 1);
     
-    console.log('Switched to rich environment:', { roundDuration, sequence });
+    console.log('Switched to block:', { nextBlockIndex, nextEnvironment, roundDuration, sequence });
   };
 
   return (
@@ -1124,4 +1178,4 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
   );
 };
 
-export default Game2; 
+export default Game2;

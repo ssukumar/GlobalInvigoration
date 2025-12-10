@@ -5,11 +5,14 @@ export const GAME_CONFIG = {
   // ===== GAME STRUCTURE =====
   BLOCKS: {
     POOR: {
-      baseRounds: 30, // Base number of rounds 
+      baseRounds: 2, // Base number of rounds 
+      // num_blocks: 2 // Number of blocks of type poor
     },
     RICH: {
-      baseRounds: 30, // Base number of rounds 
-    }
+      baseRounds: 2, // Base number of rounds 
+      // num_blocks: 2 // Number of blocks of type rich
+    },
+    ORDER: ['poor', 'rich', 'rich', 'poor'] // Order of environments
   },
 
   // ===== ROUND DURATIONS =====
@@ -63,7 +66,7 @@ export const calculateTotalRounds = (environment) => {
   
   if (environment === 'poor') {
     // Poor environment: baseRounds 
-    return baseRounds * 2;
+    return baseRounds;
   } else {
     // Rich environment: baseRounds 
     return baseRounds;
@@ -90,10 +93,72 @@ export const getRandomRoundDuration = () => {
 };
 
 // Helper function to get random key sequence from predefined options
+// export const getRandomKeySequence = () => {
+//   const sequences = GAME_CONFIG.KEYS.PREDEFINED_SEQUENCES;
+//   const randomIndex = Math.floor(Math.random() * sequences.length);
+//   return sequences[randomIndex];
+// };
+
+// Generate a random key sequence of specified length from VALID_KEYS
+// - avoids immediate repeated characters (no "aa")
+// - attempts to keep counts roughly balanced across keys
 export const getRandomKeySequence = () => {
-  const sequences = GAME_CONFIG.KEYS.PREDEFINED_SEQUENCES;
-  const randomIndex = Math.floor(Math.random() * sequences.length);
-  return sequences[randomIndex];
+  const keys = GAME_CONFIG.KEYS.VALID_KEYS.slice(); // ['a','s','d','f']
+  const length = GAME_CONFIG.KEYS.SEQUENCE_LENGTH || 10;
+
+  // Determine target counts per key (distribute length across keys as evenly as possible)
+  const baseCount = Math.floor(length / keys.length);
+  let remainder = length % keys.length;
+  const counts = {};
+  keys.forEach(k => {
+    counts[k] = baseCount + (remainder > 0 ? 1 : 0);
+    if (remainder > 0) remainder--;
+  });
+
+  // Build sequence by randomly picking a key that's available and not equal to previous
+  const seq = [];
+  let prev = null;
+
+  for (let i = 0; i < length; i++) {
+    // Build list of candidates (non-zero count and not equal to prev)
+    const candidates = keys.filter(k => counts[k] > 0 && k !== prev);
+
+    // If no candidates (only possible when only remaining keys are same as prev),
+    // allow picking prev to avoid deadlock (very rare given distribution).
+    let pick;
+    if (candidates.length === 0) {
+      // pick any key with remaining count (will be same as prev)
+      const fallback = keys.filter(k => counts[k] > 0);
+      pick = fallback[Math.floor(Math.random() * fallback.length)];
+    } else {
+      pick = candidates[Math.floor(Math.random() * candidates.length)];
+    }
+
+    seq.push(pick);
+    counts[pick]--;
+    prev = pick;
+  }
+
+  // Final safety: if any adjacent duplicates remain (shouldn't), attempt simple fix by shuffling nearby
+  for (let j = 1; j < seq.length; j++) {
+    if (seq[j] === seq[j - 1]) {
+      // try to find a later index to swap with that doesn't create another duplicate
+      let swapIdx = -1;
+      for (let k = j + 1; k < seq.length; k++) {
+        if (seq[k] !== seq[j] && seq[k] !== seq[j - 1] && (k === seq.length - 1 || seq[k] !== seq[k + 1])) {
+          swapIdx = k;
+          break;
+        }
+      }
+      if (swapIdx !== -1) {
+        const tmp = seq[j];
+        seq[j] = seq[swapIdx];
+        seq[swapIdx] = tmp;
+      }
+    }
+  }
+
+  return seq;
 };
 
 // Helper function to shuffle an array (Fisher-Yates algorithm)
@@ -106,58 +171,121 @@ export const shuffleArray = (array) => {
   return shuffled;
 };
 
-// Cache for reward sequences to ensure consistency
-const rewardSequenceCache = {
-  poor: null,
-  rich: null
-};
+// ===== BLOCK ORDER SUPPORT =====
+// Cache for reward sequences keyed by block index (supports repeated environments in ORDER)
+const rewardSequenceCache = {};
 
 // Helper function to generate reward sequence based on fixed arrays
 export const generateRewardSequence = (environment) => {
   const baseArray = GAME_CONFIG.REWARDS.ARRAYS[environment.toUpperCase()];
+  if (!baseArray) {
+    console.warn(`Unknown environment: ${environment}, defaulting to POOR rewards`);
+    return shuffleArray(GAME_CONFIG.REWARDS.ARRAYS.POOR);
+  }
   
   // Shuffle the array and return it (array length matches round count)
   return shuffleArray(baseArray);
 };
 
-// Helper function to get reward sequence for environment (cached)
+// Helper function to get reward sequence for environment (cached by environment name)
 export const getRewardSequence = (environment) => {
   // Return cached sequence if it exists
-  if (rewardSequenceCache[environment]) {
-    return rewardSequenceCache[environment];
+  if (rewardSequenceCache[`env_${environment}`]) {
+    return rewardSequenceCache[`env_${environment}`];
   }
   
   // Generate and cache new sequence
   const sequence = generateRewardSequence(environment);
-  rewardSequenceCache[environment] = sequence;
+  rewardSequenceCache[`env_${environment}`] = sequence;
+  return sequence;
+};
+
+// Helper function to get reward sequence for a specific block index (supports repeated environments)
+export const getRewardSequenceForBlock = (blockIndex) => {
+  const environment = getBlockEnvironment(blockIndex);
+  if (!environment) {
+    console.warn(`Invalid block index: ${blockIndex}`);
+    return generateRewardSequence('poor');
+  }
+  
+  // Cache by block index to support distinct sequences for repeated environment entries
+  const cacheKey = `block_${blockIndex}`;
+  if (rewardSequenceCache[cacheKey]) {
+    return rewardSequenceCache[cacheKey];
+  }
+  
+  const sequence = generateRewardSequence(environment);
+  rewardSequenceCache[cacheKey] = sequence;
   return sequence;
 };
 
 // Helper function to reset reward sequence cache (for testing or new sessions)
 export const resetRewardSequenceCache = () => {
-  rewardSequenceCache.poor = null;
-  rewardSequenceCache.rich = null;
+  Object.keys(rewardSequenceCache).forEach(key => {
+    delete rewardSequenceCache[key];
+  });
 };
 
-// Helper function to get total rounds for environment
+// ===== BLOCK SEQUENCING HELPERS =====
+// Export the ORDER array for easy access
+export const BLOCK_ORDER = GAME_CONFIG.BLOCKS.ORDER;
+
+// Get environment name for a given block index
+export const getBlockEnvironment = (blockIndex) => {
+  if (blockIndex < 0 || blockIndex >= BLOCK_ORDER.length) {
+    return null;
+  }
+  return BLOCK_ORDER[blockIndex];
+};
+
+// Get the number of rounds for a specific block index
+export const getBlockRounds = (blockIndex) => {
+  const environment = getBlockEnvironment(blockIndex);
+  if (!environment) {
+    console.warn(`Invalid block index: ${blockIndex}`);
+    return 0;
+  }
+  return calculateTotalRounds(environment);
+};
+
+// Get the next block index (or null if at the end)
+export const getNextBlockIndex = (blockIndex) => {
+  const nextIndex = blockIndex + 1;
+  return nextIndex < BLOCK_ORDER.length ? nextIndex : null;
+};
+
+// Get the environment of the next block (or null if no next block)
+export const getNextBlockEnvironment = (blockIndex) => {
+  const nextIndex = getNextBlockIndex(blockIndex);
+  return nextIndex !== null ? getBlockEnvironment(nextIndex) : null;
+};
+
+// Determine the transition state for the current block and round
+export const getBlockTransition = (blockIndex, round) => {
+  const blockRounds = getBlockRounds(blockIndex);
+  
+  if (round <= blockRounds) {
+    return 'continue';
+  } else if (getNextBlockIndex(blockIndex) !== null) {
+    return 'break';
+  } else {
+    return 'end';
+  }
+};
+
+// Helper function to get total rounds for environment (backward compatibility)
 export const getTotalRounds = (environment) => {
   return calculateTotalRounds(environment);
 };
 
-// Helper function to check if round should trigger break
-export const shouldTriggerBreak = (environment, round) => {
-  if (environment === 'poor' && round >= calculateTotalRounds('poor')) {
-    return true;
-  }
-  return false;
+// Helper function to check if round should trigger break (backward compatibility - now based on block)
+export const shouldTriggerBreak = (blockIndex, round) => {
+  return getBlockTransition(blockIndex, round) === 'break';
 };
 
-// Helper function to check if game should end
-export const shouldEndGame = (environment, round) => {
-  if (environment === 'rich' && round >= calculateTotalRounds('rich')) {
-    return true;
-  }
-  return false;
+// Helper function to check if game should end (backward compatibility - now based on block)
+export const shouldEndGame = (blockIndex, round) => {
+  return getBlockTransition(blockIndex, round) === 'end';
 };
 
 export default GAME_CONFIG;
