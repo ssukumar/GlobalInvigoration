@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450">
+  <rect width="100%" height="100%" fill="#0b2545" rx="8" />
+  <g fill="#ffffff" font-family="Arial, sans-serif">
+    <text x="50%" y="28%" font-size="28" text-anchor="middle" fill="#ffd166">Movement Example</text>
+    <rect x="120" y="120" width="120" height="210" rx="6" fill="#3498db" />
+    <rect x="560" y="120" width="120" height="210" rx="6" fill="#3498db" />
+    <circle cx="200" cy="320" r="12" fill="#ffd700" />
+    <circle cx="640" cy="320" r="12" fill="#ffd700" />
+    <text x="50%" y="88%" font-size="16" text-anchor="middle" fill="#ecf0f1">Swipe between the left and right bars to step forward</text>
+  </g>
+</svg>

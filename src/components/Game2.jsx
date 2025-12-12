@@ -24,10 +24,20 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
   const [totalCoinsCollected, setTotalCoinsCollected] = useState(0);
   const [canvasSize, setCanvasSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [showSpeedWarning, setShowSpeedWarning] = useState(false);
+  // Dash animation offset (pixels) for the center dashed-line animation
+  const [dashOffset, setDashOffset] = useState(0);
   const canvasRef = useRef(null);
   const gameCompletedRef = useRef(false);
   const speedWarningTimeout = useRef(null);
   const lastBarSwitchTime = useRef(Date.now());
+  // Track last mouse position to move dashed line only when cursor moves
+  const lastMousePosRef = useRef({ x: null, y: null });
+  // Track previous bar occupancy to detect leaving/entering bars
+  const prevBarRef = useRef(null);
+
+  // Per-bar visibility flags: hide when cursor leaves bar, re-show when opposite bar is reached
+  const [leftBarVisible, setLeftBarVisible] = useState(true);
+  const [rightBarVisible, setRightBarVisible] = useState(true);
 
   // Key sequence state
   const [keySequence, setKeySequence] = useState([]);
@@ -319,7 +329,8 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
   // Coin position (center of screen, moved up slightly)
   const coinPosition = {
     x: Math.max(canvasSize.width / 2, 400), // Minimum 400px from left
-    y: Math.max(canvasSize.height / 2 - 60, 200) // Minimum 200px from top
+    // Move coin pile further up so there's space for larger text below
+    y: Math.max(canvasSize.height / 2 - 120, 120) // Minimum 120px from top
   };
 
   const coinRadius = Math.max(Math.min(canvasSize.width, canvasSize.height) * 0.12, 30); // Minimum 30px radius
@@ -335,17 +346,17 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
   };
 
   // Coin pile drawing function - copied from PracticeMode
-  const drawCoinPile = (ctx, rewardValue) => {
+  const drawCoinPile = (ctx, rewardValue, cue = false) => {
     if (rewardValue === 0) {
       // No reward - blank circle
       ctx.beginPath();
       ctx.arc(coinPosition.x, coinPosition.y, coinRadius, 0, 2 * Math.PI);
-      ctx.fillStyle = '#f0f0f0'; // Light gray
+      ctx.fillStyle = cue ? '#dcdcdc' : '#f0f0f0'; // Slightly different gray for cue
       ctx.fill();
-      ctx.strokeStyle = '#c0c0c0'; // Darker gray border
+      ctx.strokeStyle = cue ? '#bfbfbf' : '#c0c0c0'; // Darker gray border
       ctx.lineWidth = 4;
       ctx.stroke();
-      
+
       // Display "0" at the top
       ctx.fillStyle = '#888888';
       ctx.font = `bold ${coinRadius * 0.4}px Arial`;
@@ -359,17 +370,18 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     if (rewardValue === 10) {
       numCoins = 1;
       baseWidth = 1;
-    } else if (rewardValue === 30) {
-      numCoins = 3;
-      baseWidth = 2;
-    } else if (rewardValue === 50) {
-      numCoins = 5;
+    } else if (rewardValue === 60) {
+      numCoins = 6;
+      baseWidth = 3;
+    } else if (rewardValue === 100) {
+      numCoins = 10;
       baseWidth = 4;
     } else {
       return 0;
     }
     
-    const coinRadius = 20; // All coins are the same size
+    // Make coins larger for visibility; scale with canvas size
+    const coinRadius = Math.max(28, Math.floor(Math.min(canvasSize.width, canvasSize.height) * 0.035)); // Increased from 20
     const spacing = coinRadius * 1.8; // Slight overlap
     
     // Draw coins in pyramid formation
@@ -385,36 +397,65 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
         // Draw single coin
         ctx.beginPath();
         ctx.arc(coinX, rowY, coinRadius, 0, 2 * Math.PI);
-        
-        // Create uniform gold gradient
-        const gradient = ctx.createRadialGradient(
-          coinX - coinRadius * 0.3,
-          rowY - coinRadius * 0.3,
-          0,
-          coinX,
-          rowY,
-          coinRadius
-        );
-        gradient.addColorStop(0, '#FFD700'); // Bright gold center
-        gradient.addColorStop(0.7, '#FFA500'); // Orange gold mid
-        gradient.addColorStop(1, '#FF8C00'); // Dark orange edge
-        
-        ctx.fillStyle = gradient;
-        ctx.fill();
-        
-        // Coin border
-        ctx.strokeStyle = '#FF8C00'; // Dark orange border
-        ctx.lineWidth = 2;
-        ctx.stroke();
 
-        // Simple dark vertical bar in the middle
-        ctx.fillStyle = '#B8860B'; // Dark gold bar
-        ctx.fillRect(
-          coinX - coinRadius * 0.1,
-          rowY - coinRadius * 0.4,
-          coinRadius * 0.2,
-          coinRadius * 0.8
-        );
+        if (cue) {
+          // Cue (grey) coin style
+          const gradient = ctx.createRadialGradient(
+            coinX - coinRadius * 0.3,
+            rowY - coinRadius * 0.3,
+            0,
+            coinX,
+            rowY,
+            coinRadius
+          );
+          gradient.addColorStop(0, '#e6e6e6');
+          gradient.addColorStop(0.7, '#bfbfbf');
+          gradient.addColorStop(1, '#9a9a9a');
+          ctx.fillStyle = gradient;
+          ctx.fill();
+          // Border
+          ctx.strokeStyle = '#7f7f7f';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          // Add a subtle central stripe to make it look like a coin
+          ctx.fillStyle = '#8c8c8c';
+          const stripeWidth = coinRadius * 0.12;
+          ctx.fillRect(
+            coinX - stripeWidth / 2,
+            rowY - coinRadius * 0.55,
+            stripeWidth,
+            coinRadius * 1.1
+          );
+        } else {
+          // Gold coin style (original)
+          const gradient = ctx.createRadialGradient(
+            coinX - coinRadius * 0.3,
+            rowY - coinRadius * 0.3,
+            0,
+            coinX,
+            rowY,
+            coinRadius
+          );
+          gradient.addColorStop(0, '#FFD700'); // Bright gold center
+          gradient.addColorStop(0.7, '#FFA500'); // Orange gold mid
+          gradient.addColorStop(1, '#FF8C00'); // Dark orange edge
+          ctx.fillStyle = gradient;
+          ctx.fill();
+          // Coin border
+          ctx.strokeStyle = '#FF8C00'; // Dark orange border
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          // Simple dark vertical bar in the middle (gold style only)
+          ctx.fillStyle = '#B8860B'; // Dark gold bar
+          ctx.fillRect(
+            coinX - coinRadius * 0.1,
+            rowY - coinRadius * 0.4,
+            coinRadius * 0.2,
+            coinRadius * 0.8
+          );
+        }
         
         coinIndex++;
       }
@@ -422,14 +463,16 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     
     // Calculate pile height for positioning
     const pileHeight = baseWidth * spacing * 0.8;
-    
-    // Draw reward value below the coin pile in gold text
-    ctx.fillStyle = '#FFD700'; // Gold text
-    ctx.font = 'bold 24px "Arial", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText(`${rewardValue} points`, coinPosition.x, coinPosition.y + pileHeight + 30);
-    
+
+    // If not cue, draw reward value below the coin pile in gold text (larger)
+    if (!cue) {
+      ctx.fillStyle = '#FFD700'; // Gold text
+      ctx.font = 'bold 32px "Arial", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(`${rewardValue} points`, coinPosition.x, coinPosition.y + pileHeight + 30);
+    }
+
     return pileHeight;
   };
 
@@ -702,7 +745,7 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     return () => window.removeEventListener('keyup', handleKeyUp);
   }, [gameActive, gamePhase, coinVisible, keySequence]);
 
-  // Handle mouse movement for bar hover detection - copied from working Game2.jsx
+  // Handle mouse movement for bar hover detection
   const handleMouseMove = (event) => {
     if (!gameActive || gamePhase !== 'reaching') return; // Only track during reaching phase
 
@@ -714,10 +757,38 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     // Current bar positions
     const { leftBar, rightBar } = getBarPositions();
 
+    // Update dashed-line offset based on cursor movement toward visible bar only
+    const lastPos = lastMousePosRef.current;
+    if (lastPos.x !== null && lastPos.y !== null) {
+      const dx = x - lastPos.x;
+      const dy = y - lastPos.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > 0) {
+        // Determine if movement is toward the visible bar
+        // Visible bar is the one that is currently shown (not hidden)
+        const movingTowardVisibleBar = (
+          (rightBarVisible && dx > 0) || // Moving right when right bar is visible
+          (leftBarVisible && dx < 0)     // Moving left when left bar is visible
+        );
+
+        // Only advance dash if moving toward the visible bar; keep stationary when moving away
+        if (movingTowardVisibleBar) {
+          // Advance the dash line
+          const DASH_LENGTH = 20;
+          const GAP_LENGTH = 15;
+          const TOTAL_PATTERN = DASH_LENGTH + GAP_LENGTH;
+          const DASH_SCALE = 0.28; // Lower sensitivity so dash moves slower with cursor
+          // Use a small fraction of the distance to slow movement
+          setDashOffset(prev => (prev + dist * DASH_SCALE) % TOTAL_PATTERN);
+        }
+        // If moving away from visible bar, dash stays stationary (no update)
+      }
+    }
+    lastMousePosRef.current = { x, y };
+
     // Record movement data during reaching phase using synchronized arrays (30 Hz sampling)
     const timestamp = Date.now();
     const timeSinceLastSample = timestamp - lastSampleTime;
-    
     // Only record data every ~33.3ms (30 Hz)
     if (timeSinceLastSample >= 33) {
       appendReachingData(x, y, timestamp);
@@ -725,40 +796,51 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     }
 
     // Bar hover logic (no points, just visual feedback)
-    if (
-      x >= leftBar.x && x <= leftBar.x + leftBar.width &&
-      y >= leftBar.y && y <= leftBar.y + leftBar.height
-    ) {
-      if (lastClicked !== 'left') {
-        setLastClicked('left');
-        lastBarSwitchTime.current = Date.now();
-        // Clear any existing warning when switching bars
-        setShowSpeedWarning(false);
-        if (speedWarningTimeout.current) {
-          clearTimeout(speedWarningTimeout.current);
+    const inLeft = x >= leftBar.x && x <= leftBar.x + leftBar.width && y >= leftBar.y && y <= leftBar.y + leftBar.height;
+    const inRight = x >= rightBar.x && x <= rightBar.x + rightBar.width && y >= rightBar.y && y <= rightBar.y + rightBar.height;
+    const currentBar = inLeft ? 'left' : inRight ? 'right' : null;
+
+    // Option A behavior (chosen):
+    // - When the cursor enters a bar, that bar disappears immediately and the opposite bar becomes visible.
+    // - Leaving into neutral does not change visibility (visibility toggles on entry).
+    const prevBar = prevBarRef.current;
+    if (currentBar !== prevBar) {
+      if (currentBar === 'left') {
+        // Entered left: hide left immediately, ensure right visible
+        setLeftBarVisible(false);
+        setRightBarVisible(true);
+
+        if (lastClicked !== 'left') {
+          setLastClicked('left');
+          lastBarSwitchTime.current = Date.now();
+          setShowSpeedWarning(false);
+          if (speedWarningTimeout.current) {
+            clearTimeout(speedWarningTimeout.current);
+          }
+          speedWarningTimeout.current = setTimeout(() => {
+            setShowSpeedWarning(true);
+          }, 2000);
         }
-        // Set warning to appear after 2 seconds on this bar - copied from working Game2.jsx
-        speedWarningTimeout.current = setTimeout(() => {
-          setShowSpeedWarning(true);
-        }, 2000);
-      }
-    } else if (
-      x >= rightBar.x && x <= rightBar.x + rightBar.width &&
-      y >= rightBar.y && y <= rightBar.y + rightBar.height
-    ) {
-      if (lastClicked !== 'right') {
-        setLastClicked('right');
-        lastBarSwitchTime.current = Date.now();
-        // Clear any existing warning when switching bars
-        setShowSpeedWarning(false);
-        if (speedWarningTimeout.current) {
-          clearTimeout(speedWarningTimeout.current);
+      } else if (currentBar === 'right') {
+        // Entered right: hide right immediately, ensure left visible
+        setRightBarVisible(false);
+        setLeftBarVisible(true);
+
+        if (lastClicked !== 'right') {
+          setLastClicked('right');
+          lastBarSwitchTime.current = Date.now();
+          setShowSpeedWarning(false);
+          if (speedWarningTimeout.current) {
+            clearTimeout(speedWarningTimeout.current);
+          }
+          speedWarningTimeout.current = setTimeout(() => {
+            setShowSpeedWarning(true);
+          }, 2000);
         }
-        // Set warning to appear after 2 seconds on this bar - copied from working Game2.jsx
-        speedWarningTimeout.current = setTimeout(() => {
-          setShowSpeedWarning(true);
-        }, 2000);
       }
+
+      // If we've moved to neutral (currentBar === null), do nothing to visibility per Option A
+      prevBarRef.current = currentBar;
     }
   };
 
@@ -789,7 +871,7 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     setShowSpeedWarning(false);
     gameCompletedRef.current = false;
     
-    // Reset data collection arrays
+        // Reset data collection arrays
     setGameStateArray([]);
     setEventArray([]);
     setPosXArray([]);
@@ -803,9 +885,7 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     setValidityArray([]);
     setCurrentReachNumber(1);
     setLastWallPosition(null);
-    setCurrentKeytapNumber(1);
-    
-    // Get random round duration and key sequence
+    setCurrentKeytapNumber(1);    // Get random round duration and key sequence
     const roundDuration = getRandomRoundDuration();
     const sequence = getRandomKeySequence();
     
@@ -840,6 +920,9 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
       }
     };
   }, []);
+
+  // Dash movement will be driven by cursor movement (see `handleMouseMove`).
+  // No continuous RAF-driven dash animation needed.
 
   // Handle cursor visibility based on game phase
   useEffect(() => {
@@ -880,17 +963,22 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
 
     if (gamePhase === 'reaching') {
-      // Draw bars during reaching phase
-        // Draw left bar
-        ctx.beginPath();
-        ctx.rect(leftBar.x, leftBar.y, leftBar.width, leftBar.height);
-        ctx.fillStyle = lastClicked === 'left' ? '#27ae60' : '#3498db';
-        ctx.fill();
-        ctx.strokeStyle = '#2980b9';
-        ctx.lineWidth = 3;
-        ctx.stroke();
+      // Draw bars during reaching phase (animated upward over time)
+        // Draw left bar (may be hidden if user left it)
+        const drawLeftBar = leftBarVisible;
+        if (drawLeftBar) {
+          ctx.beginPath();
+          ctx.rect(leftBar.x, leftBar.y, leftBar.width, leftBar.height);
+          ctx.fillStyle = lastClicked === 'left' ? '#27ae60' : '#3498db';
+          ctx.fill();
+          ctx.strokeStyle = '#2980b9';
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
 
-        // Draw right bar
+        // Draw right bar (may be hidden if user left it)
+        const drawRightBar = rightBarVisible;
+        if (drawRightBar) {
         ctx.beginPath();
         ctx.rect(rightBar.x, rightBar.y, rightBar.width, rightBar.height);
         ctx.fillStyle = lastClicked === 'right' ? '#27ae60' : '#3498db';
@@ -898,36 +986,64 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
         ctx.strokeStyle = '#2980b9';
         ctx.lineWidth = 3;
         ctx.stroke();
+      }
 
-      // Draw gray circle with reward value when 3 seconds or less remain
+      // Draw animated vertical dashed line down the center
+      // The dash offset is driven by `dashOffset` which is updated by a RAF loop
+      const centerX = canvasSize.width / 2;
+      const dashLength = 20; // Length of each dash
+      const gapLength = 15; // Length of gap between dashes
+
+      ctx.strokeStyle = '#FFD700'; // Gold dashed line
+      ctx.lineWidth = 3;
+      ctx.setLineDash([dashLength, gapLength]);
+      ctx.lineDashOffset = -dashOffset; // Negative for upward motion effect
+
+      ctx.beginPath();
+      ctx.moveTo(centerX, -canvasSize.height); // Start above screen
+      ctx.lineTo(centerX, canvasSize.height * 2); // Extend below screen
+      ctx.stroke();
+      ctx.setLineDash([]); // Reset to solid
+
+      // Draw gray coin cue and countdown when 3 seconds or less remain
       if (timeLeft <= 3) {
         // Use the stable reward value for this round
         const rewardValue = currentRoundRewardValue;
-        
-        // Draw gray circle at coin position
-        ctx.beginPath();
-        ctx.arc(coinPosition.x, coinPosition.y, coinRadius, 0, 2 * Math.PI);
-        ctx.fillStyle = '#808080'; // Gray color
-        ctx.fill();
-        ctx.strokeStyle = '#606060'; // Darker gray border
-        ctx.lineWidth = 3;
-        ctx.stroke();
-        
-        // Draw reward value in the center of the circle
-        ctx.fillStyle = '#ffffff'; // White text
-        ctx.font = `bold ${coinRadius * 0.6}px Arial`; // Slightly smaller font for numbers
+
+        // Draw cue coin pile at the same position as the keypress-phase pile
+        const pileHeight = drawCoinPile(ctx, rewardValue, true);
+
+        // Draw countdown text below the cue coin pile, centered on coinPosition
+        const countdownNum = Math.max(0, Math.ceil(timeLeft));
+        const line1 = `${rewardValue} points`;
+        const line2 = `in ${countdownNum}...`;
+
+        // Small top line: same style as points label (larger)
+        const smallFontSize = 32;
+        ctx.fillStyle = '#FFD700';
+        ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+        ctx.font = `bold ${smallFontSize}px "Arial", sans-serif`;
         ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(rewardValue.toString(), coinPosition.x, coinPosition.y);
+        ctx.textBaseline = 'top';
+        ctx.lineWidth = 6;
+
+        const startY = coinPosition.y + pileHeight + 30;
+        ctx.strokeText(line1, coinPosition.x, startY);
+        ctx.fillText(line1, coinPosition.x, startY);
+
+        // Emphasized countdown number on the next line (same size as points)
+        const bigFontSize = smallFontSize;
+        ctx.font = `bold ${bigFontSize}px "Arial", sans-serif`;
+        const numberY = startY + smallFontSize + 6;
+        ctx.strokeText(line2, coinPosition.x, numberY);
+        ctx.fillText(line2, coinPosition.x, numberY);
       }
 
       // Draw score (centered, bigger)
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 48px "Orbitron", "Courier New", monospace';
+      ctx.font = 'bold 64px "Orbitron", "Courier New", monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`Score: ${score}`, canvasSize.width / 2, 80);
-
-
+      ctx.fillText(`Score: ${score}`, canvasSize.width / 2, 100);
 
       // Draw speed warning if active
       if (showSpeedWarning) {
@@ -949,9 +1065,9 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
 
       // Draw score (centered, bigger) - same as reaching phase
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 48px "Orbitron", "Courier New", monospace';
+      ctx.font = 'bold 64px "Orbitron", "Courier New", monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`Score: ${score}`, canvasSize.width / 2, 80);
+      ctx.fillText(`Score: ${score}`, canvasSize.width / 2, 100);
 
       // Draw coin/reward based on reward value
       if (coinVisible) {
@@ -998,9 +1114,9 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
               sequenceY = coinPosition.y + pileHeight + 80; // Standard position for 30/50 points
             }
         
-        keySequence.forEach((key, index) => {
-              const keyX = sequenceStartX + (index * 40);
-          
+            keySequence.forEach((key, index) => {
+              const keyX = sequenceStartX + (index * 48);
+
           // Determine color based on key state
           if (keyStates[index] === 'correct') {
             ctx.fillStyle = '#27ae60'; // Green
@@ -1011,25 +1127,25 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
           } else {
             ctx.fillStyle = '#7f8c8d'; // Grey for pending
           }
-          
-              ctx.font = 'bold 36px "Arial", sans-serif';
+
+              ctx.font = 'bold 48px "Arial", sans-serif';
           ctx.fillText(key.toUpperCase(), keyX, sequenceY);
         });
         
             // Draw "Press:" text
           ctx.fillStyle = '#FFD700';
-          ctx.font = 'bold 24px "Arial", sans-serif';
+          ctx.font = 'bold 32px "Arial", sans-serif';
             ctx.textAlign = 'center';
             if (keySequence.length > 0 && currentKeyIndex < keySequence.length) {
-              ctx.fillText(`Press: ${keySequence[currentKeyIndex].toUpperCase()}`, coinPosition.x, sequenceY + 40);
+              ctx.fillText(`Press: ${keySequence[currentKeyIndex].toUpperCase()}`, coinPosition.x, sequenceY + 48);
         }
         
             // Draw progress text
         const progressText = `${currentKeyIndex}/${keySequence.length}`;
         ctx.fillStyle = '#ecf0f1';
-        ctx.font = '20px "Arial", sans-serif';
+        ctx.font = '28px "Arial", sans-serif';
       ctx.textAlign = 'center';
-            ctx.fillText(progressText, coinPosition.x, sequenceY + 65);
+            ctx.fillText(progressText, coinPosition.x, sequenceY + 78);
           }
         }
       }
@@ -1059,7 +1175,7 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
         const nextBlockNumber = pendingNextBlockIndex + 1;
         const nextBlockEnv = getBlockEnvironment(pendingNextBlockIndex);
         ctx.fillText(
-          `Press SPACE to continue to Block ${nextBlockNumber} (${nextBlockEnv})`,
+          `Press SPACE to continue to Block ${nextBlockNumber}`,
           canvasSize.width / 2,
           canvasSize.height / 2 + 40
         );
@@ -1069,9 +1185,9 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
       ctx.font = 'bold 24px "Orbitron", "Courier New", monospace';
       ctx.fillText(`Current Score: ${score}`, canvasSize.width / 2, canvasSize.height / 2 + 100);
     }
-  }, [timeLeft, score, lastClicked, gamePhase, coinVisible, canvasSize, 
+    }, [timeLeft, score, lastClicked, gamePhase, coinVisible, canvasSize, 
       showSpeedWarning, showRewardAnimation, keySequence, currentKeyIndex, keyStates, currentEnvironment, 
-      currentRewardValue, rewardAnimationText, gameActive, environmentRound, leftBar, rightBar, coinPosition, coinRadius, barWidth]);
+      currentRewardValue, rewardAnimationText, gameActive, environmentRound, leftBar, rightBar, coinPosition, coinRadius, barWidth, dashOffset]);
 
   // Handle game completion when last block ends
   useEffect(() => {

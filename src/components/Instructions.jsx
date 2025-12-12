@@ -9,92 +9,109 @@ const Instructions = ({ onStart, onPractice, currentPage = 0, setCurrentPage }) 
 
   const pages = [
     {
-      title: "Game Overview",
+      title: "Welcome to the Swipe-and-Type Study!",
       content: (
         <div className="instructions-content">
-          <h2>Welcome to the Global Invigoration Study!</h2>
+          <h2>Game Overview </h2>
           <p>
-            You will play a game with <strong>two tasks</strong>. 
-            Your goal is to earn as many points as possible by following the on-screen instructions.
+            In this game you will help a character move forward by taking alternating left and right steps.
+            To make a step you will swipe your cursor left and right between two bars on the sides of the screen.
+            Occasionally you will be given an opportunity to collect a reward by typing a short key sequence.
           </p>
-          <div className="phase-overview">
+          {/* <div className="phase-overview">
             <div className="phase-item">
-              <h3>Task 1: Movement Task</h3>
-              <p>Move your cursor between bars at a steady pace</p>
+              <h3>Movement Task</h3>
+              <p>Swipe left and right between the two bars to take steps and move forward.</p>
             </div>
             <div className="phase-item">
-              <h3>Task 2: Reward Collection</h3>
-              <p>Press the keys in the sequence to collect your reward</p>
+              <h3>Reward Collection</h3>
+              <p>When a reward appears, type the shown key sequence exactly to collect it.</p>
             </div>
-          </div>
-          <p>Let's learn about each task in detail...</p>
+          </div> */}
+          {/* <p>Read on for a short story and exact instructions so you know what to do.</p> */}
         </div>
       )
     },
     {
-      title: "Task 1: Movement Task",
+      title: "Swiping to Move Forward",
       content: (
         <div className="instructions-content">
-          <h2>Movement Task Details</h2>
-          <div className="phase-visual">
-            <div className="visual-description">
-              <h3>What you'll see:</h3>
-              <ul>
-                <li><strong>Blue bars</strong> on the left and right sides of the screen</li>
-                <li>Your <strong>score</strong> will be displayed in the top right corner</li>
-              </ul>
-            </div>
-          </div>
-          <h3>What to do:</h3>
-          <ul>
-            <li><strong>Move your cursor</strong> back and forth between the bars at a steady pace</li>
-            <li>The bars will turn <strong>green</strong> when you hover over them</li>
-            <li>Keep moving at a steady pace - don't stay on one side too long!</li>
-            <li>If you move too slowly, you'll see a <strong>"Move Faster!"</strong> warning</li>
-          </ul>
-        </div>
-      )
-    },
-    {
-      title: "Task 2: Reward Collection",
-      content: (
-        <div className="instructions-content">
-          <h2>Reward Collection Details</h2>
-          <div className="phase-visual">
-            <div className="visual-description">
-              <h3>What happens:</h3>
-              <ul>
-                <li>After an unknown amount of time, the <strong>bars disappear</strong></li>
-                <li>After some time, you may be given the option to collect a reward</li>
-                <li>You will need to collect your reward</li>
-              </ul>
-            </div>
-          </div>
-          <h3>What to do:</h3>
-          <ul>
-            <li>Follow the <strong>key sequence</strong> displayed on screen to collect the reward</li>
-            <li>Press the keys <strong>A, S, D, F</strong> in the exact order shown</li>
-            <li>Watch as your progress is displayed with the sequence</li>
-            <li>Complete the entire sequence to receive your reward</li>
-          </ul>
-        </div>
-      )
-    },
-    {
-      title: "Ready to Start?",
-      content: (
-        <div className="instructions-content">
-          <h2>You're Ready to Start!</h2>
+          <h2>Help the explorer take steps to move forward</h2>
           <p>
-            You now know everything you need to participate in the study. 
-            Remember: move between the bars, then collect the reward by following the key sequence.
+            Imagine you are guiding an explorer walking on a road. Each time the explorer takes a left step and a right step,
+            they move one step forward. To make a left step, swipe your cursor to the left bar; to make a right step, swipe to the right bar.
+            Make sure to alternate these swipes makes the explorer advance. 
           </p>
-          
+          <h3>How your swipes map to steps</h3>
+          <ul>
+            <li>Swipe to the <strong>left bar</strong> to take a left step.</li>
+            <li>Swipe to the <strong>right bar</strong> to take a right step.</li>
+            <li>Left then right (or right then left) counts as forward movement.</li>
+          </ul>
+          <h3>Remember</h3>
+          <ul>
+            <li>Keep moving back and forth at a steady pace; do not stop or stay on one side for too long.</li>
+            <li>If you slow down too much, a <strong>Move Faster!</strong> warning will appear.</li>
+            <li>You have to swipe all the way to the bar to register a step; the bar will disappear once reached.</li>
+          </ul>
+          {/* <div className="screenshot-placeholder" role="img" aria-label="Instruction screenshot placeholder">
+            <img src="/images/instruction-movement.svg" alt="Movement example" className="instruction-screenshot" />
+          </div> */}
+          <div className="screenshot-placeholder" role="img" aria-label="Movement video">
+            <video className="instruction-screenshot" controls width="100%">
+              <source src="/videos/movement-demo.mp4" type="video/mp4" />
+              Your browser does not support the video tag.
+            </video>
+          </div>
+        </div>
+      )
+    },
+    {
+      title: "Opprtunities to Collect Rewards",
+      content: (
+        <div className="instructions-content">
+          <h2>When Rewards Appear</h2>
+          <p>
+            Once you have started moving, after a delay, a small cue and a countdown will tell you
+            a reward is coming. You will be cued regarding the value of the reward once it's imminent. 
+            When the reward is ready to be collected, a short key sequence will be shown.
+          </p>
+          <h3>How to collect a reward</h3>
+          <ol>
+            <li>Watch the screen for the key sequence (letters will appear like: <strong>A S D F</strong>).</li>
+            <li>Type the keys in the exact order shown, using the keys <strong>A, S, D, F</strong>.</li>
+            <li>If you complete the full sequence correctly, you receive the reward (points)</li>
+          </ol>
+          <p>
+            The reward counts toward your score. Practice keeping a steady movement so you can be ready when a reward appears.
+          </p>
+          {/* <div className="screenshot-placeholder" role="img" aria-label="Reward screenshot placeholder">
+            <img src="/images/reward-screenshot.svg" alt="Reward example" className="instruction-screenshot" />
+          </div> */}
+          <div className="screenshot-placeholder" role="img" aria-label="Reward video">
+            <video className="instruction-screenshot" controls width="100%">
+              <source src="/videos/reward-demo.mp4" type="video/mp4" />
+              Your browser does not support the video tag.
+            </video>
+          </div>
+        </div>
+      )
+    },
+    {
+      title: "Ready to Begin?",
+      content: (
+        <div className="instructions-content">
+          <h2>In summary...</h2>
+          <p>
+            Swipe left and right between the bars to take alternating steps and move the explorer forward.
+            When a reward appears, type the displayed key sequence exactly to collect it.
+          </p>
           <div className="final-reminder">
-            <h3>Quick Reminder:</h3>
+            <h3>Quick Checklist</h3>
             <ol>
-              <li><strong>Task 1:</strong> Move cursor between blue bars</li>
-              <li><strong>Task 2:</strong> Follow the key sequence to collect the reward</li>
+              <li>Keep swiping between the left and right bars at a steady pace.</li>
+              <li>When a reward cue appears, type the shown key sequence (A, S, D, F) in order.</li>
+              <li>Complete the practice round if available to get comfortable with movement and typing.</li>
             </ol>
           </div>
         </div>

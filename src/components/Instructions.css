@@ -109,11 +109,11 @@
 
 /* Phase detail page styles */
 .phase-visual {
-  background: linear-gradient(135deg, #ebf3fd, #d1ecf1);
-  border-left: 4px solid #3498db;
-  padding: 1.5rem;
-  margin: 1.5rem 0;
-  border-radius: 8px;
+  /* Simplified: remove inner boxed look, keep spacing */
+  background: transparent;
+  border: none;
+  padding: 1rem 0;
+  margin: 1rem 0;
 }
 
 .visual-description h3 {
@@ -122,11 +122,11 @@
 }
 
 .tip-box {
-  background: linear-gradient(135deg, #fff9e6, #fef4d1);
-  border-left: 4px solid #f39c12;
-  padding: 1rem 1.5rem;
-  margin: 1.5rem 0;
-  border-radius: 8px;
+  /* Simplified tip box: no heavy background or border */
+  background: transparent;
+  border: none;
+  padding: 0.75rem 0;
+  margin: 1rem 0;
 }
 
 .tip-box p {
@@ -144,11 +144,11 @@
 }
 
 .score-item {
-  background: linear-gradient(135deg, #f0f8ff, #e6f3ff);
-  border: 2px solid #3498db;
-  border-radius: 8px;
-  padding: 1.5rem;
-  text-align: center;
+  /* Remove boxed appearance from scoring items */
+  background: transparent;
+  border: none;
+  padding: 1rem 0;
+  text-align: left;
 }
 
 .score-item h3 {
@@ -165,11 +165,11 @@
 
 /* Final page styles */
 .final-reminder {
-  background: linear-gradient(135deg, #f8f9fa, #e9ecef);
-  border: 2px solid #6c757d;
-  border-radius: 8px;
-  padding: 1.5rem;
-  margin: 2rem 0;
+  /* Flatten final reminder styling */
+  background: transparent;
+  border: none;
+  padding: 1rem 0;
+  margin: 1.5rem 0;
 }
 
 .final-reminder h3 {
@@ -189,11 +189,65 @@
 }
 
 .button-desc {
-  background: linear-gradient(135deg, #f8f9fa, #e9ecef);
-  border-radius: 6px;
-  padding: 1rem;
+  background: transparent;
+  border-radius: 4px;
+  padding: 0.75rem 0;
   text-align: center;
   font-size: 0.9rem;
+}
+/* Larger, centered screenshot/video placeholder */
+.screenshot-placeholder {
+  width: 100%;
+  max-width: 900px;        /* allow larger videos on wide screens */
+  height: 540px;           /* larger default height */
+  border: 2px dashed #c8c8c8;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #7f8c8d;
+  font-size: 1rem;
+  margin: 1.25rem auto;    /* center the placeholder and give vertical spacing */
+  background: transparent;
+  padding: 8px;            /* allow breathing room for the video */
+  box-sizing: border-box;
+}
+
+/* Video/image inside placeholder */
+.instruction-screenshot {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  object-fit: contain;     /* preserve aspect ratio; change to 'cover' if you prefer cropping */
+}
+
+/* Ensure <video> specifically has a dark background */
+video.instruction-screenshot {
+  background-color: #000;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+  .screenshot-placeholder {
+    max-width: 760px;
+    height: 460px;
+  }
+}
+
+@media (max-width: 768px) {
+  .screenshot-placeholder {
+    max-width: 100%;
+    height: 320px;         /* smaller height for phones */
+    margin: 0.75rem auto;
+  }
+
+  .instruction-screenshot {
+    border-radius: 6px;
+  }
 }
 
 /* Navigation styles */

@@ -5,11 +5,11 @@ export const GAME_CONFIG = {
   // ===== GAME STRUCTURE =====
   BLOCKS: {
     POOR: {
-      baseRounds: 2, // Base number of rounds 
+      baseRounds: 5, // Base number of rounds 
       // num_blocks: 2 // Number of blocks of type poor
     },
     RICH: {
-      baseRounds: 2, // Base number of rounds 
+      baseRounds: 5, // Base number of rounds 
       // num_blocks: 2 // Number of blocks of type rich
     },
     ORDER: ['poor', 'rich', 'rich', 'poor'] // Order of environments
@@ -29,11 +29,11 @@ export const GAME_CONFIG = {
 
   // ===== REWARD VALUES =====
   REWARDS: {
-    VALUES: [10, 30, 50], // Available reward values (no more 0 reward)
-    PRACTICE_VALUE: 50, // Reward value for practice mode
+    VALUES: [10, 60, 100], // Available reward values (no more 0 reward)
+    PRACTICE_VALUE: 30, // Reward value for practice mode
     ARRAYS: {
-      POOR: [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 30, 30, 30, 30, 30, 30, 30, 30, 30, 50, 50, 50, 50, 50, 50], // 30 rounds for poor environment (50% 10s, 30% 30s, 20% 50s)
-      RICH: [10, 10, 10, 10, 10, 10, 30, 30, 30, 30, 30, 30, 30, 30, 30, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50]  // 30 rounds for rich environment (20% 10s, 30% 30s, 50% 50s)
+      POOR: [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 60, 60, 60, 60, 60, 60, 60, 60, 60, 100, 100, 100, 100, 100, 100], // 30 rounds for poor environment (50% 10s, 30% 30s, 20% 50s)
+      RICH: [10, 10, 10, 10, 10, 10, 60, 60, 60, 60, 60, 60, 60, 60, 60, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100]  // 30 rounds for rich environment (20% 10s, 30% 30s, 50% 50s)
     }
   },
 
@@ -100,65 +100,54 @@ export const getRandomRoundDuration = () => {
 // };
 
 // Generate a random key sequence of specified length from VALID_KEYS
-// - avoids immediate repeated characters (no "aa")
-// - attempts to keep counts roughly balanced across keys
+// Uses without-replacement sampling: cycles through keys, reshuffling when exhausted.
+// Guarantees no immediate consecutive repeats and balanced key distribution.
 export const getRandomKeySequence = () => {
-  const keys = GAME_CONFIG.KEYS.VALID_KEYS.slice(); // ['a','s','d','f']
+  const validKeys = GAME_CONFIG.KEYS.VALID_KEYS.slice(); // ['a','s','d','f']
   const length = GAME_CONFIG.KEYS.SEQUENCE_LENGTH || 10;
-
-  // Determine target counts per key (distribute length across keys as evenly as possible)
-  const baseCount = Math.floor(length / keys.length);
-  let remainder = length % keys.length;
-  const counts = {};
-  keys.forEach(k => {
-    counts[k] = baseCount + (remainder > 0 ? 1 : 0);
-    if (remainder > 0) remainder--;
-  });
-
-  // Build sequence by randomly picking a key that's available and not equal to previous
-  const seq = [];
-  let prev = null;
+  const sequence = [];
+  let availableKeys = shuffleArray(validKeys); // Start with shuffled keys
+  let keyIndex = 0;
 
   for (let i = 0; i < length; i++) {
-    // Build list of candidates (non-zero count and not equal to prev)
-    const candidates = keys.filter(k => counts[k] > 0 && k !== prev);
-
-    // If no candidates (only possible when only remaining keys are same as prev),
-    // allow picking prev to avoid deadlock (very rare given distribution).
-    let pick;
-    if (candidates.length === 0) {
-      // pick any key with remaining count (will be same as prev)
-      const fallback = keys.filter(k => counts[k] > 0);
-      pick = fallback[Math.floor(Math.random() * fallback.length)];
-    } else {
-      pick = candidates[Math.floor(Math.random() * candidates.length)];
+    // If we've exhausted the current pool, reshuffle for the next cycle
+    if (keyIndex >= availableKeys.length) {
+      availableKeys = shuffleArray(validKeys);
+      keyIndex = 0;
     }
 
-    seq.push(pick);
-    counts[pick]--;
-    prev = pick;
-  }
+    const currentKey = availableKeys[keyIndex];
 
-  // Final safety: if any adjacent duplicates remain (shouldn't), attempt simple fix by shuffling nearby
-  for (let j = 1; j < seq.length; j++) {
-    if (seq[j] === seq[j - 1]) {
-      // try to find a later index to swap with that doesn't create another duplicate
-      let swapIdx = -1;
-      for (let k = j + 1; k < seq.length; k++) {
-        if (seq[k] !== seq[j] && seq[k] !== seq[j - 1] && (k === seq.length - 1 || seq[k] !== seq[k + 1])) {
-          swapIdx = k;
+    // Avoid adjacent repeats: if this key matches the previous key, try to swap
+    if (i > 0 && currentKey === sequence[i - 1]) {
+      // Find next key in pool that's different from the previous key
+      let swapped = false;
+      for (let j = keyIndex + 1; j < availableKeys.length; j++) {
+        if (availableKeys[j] !== sequence[i - 1]) {
+          // Swap and pick the different key
+          [availableKeys[keyIndex], availableKeys[j]] = [availableKeys[j], availableKeys[keyIndex]];
+          swapped = true;
           break;
         }
       }
-      if (swapIdx !== -1) {
-        const tmp = seq[j];
-        seq[j] = seq[swapIdx];
-        seq[swapIdx] = tmp;
+
+      // If no swap found in current pool, move to next pool
+      if (!swapped) {
+        availableKeys = shuffleArray(validKeys);
+        keyIndex = 0;
+        // Recurse to pick from fresh pool (avoiding infinite loop via length check)
+        if (validKeys.length > 1 && availableKeys[keyIndex] === sequence[i - 1]) {
+          // Move to next key in fresh pool if first key is same as prev
+          keyIndex = 1;
+        }
       }
     }
+
+    sequence.push(availableKeys[keyIndex]);
+    keyIndex++;
   }
 
-  return seq;
+  return sequence;
 };
 
 // Helper function to shuffle an array (Fisher-Yates algorithm)

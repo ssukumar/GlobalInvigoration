@@ -2,14 +2,14 @@ import React, { useState, useEffect } from 'react';
 import ConsentForm from './components/ConsentForm';
 import SurveyForm from './components/SurveyForm';
 import Instructions from './components/Instructions';
-import Game from './components/Game2';
+import Game2 from './components/Game2';
 import PracticeMode from './components/PracticeMode';
 import DataExporter from './components/DataExporter';
 import { initializeParticipant } from './firebase/dataCollection';
 import './App.css';
 
 function App() {
-  const [step, setStep] = useState('instructions');
+  const [step, setStep] = useState('consent');
   const [participantData, setParticipantData] = useState(null);
   const [participantId, setParticipantId] = useState(null);
   const [instructionPage, setInstructionPage] = useState(0);
@@ -60,7 +60,7 @@ function App() {
       // Continue with experiment even if data collection fails
     }
     
-    setInstructionPage(1); // Start from page 1
+    setInstructionPage(0); // Start from page 1
     setStep('instructions');
   };
 
@@ -136,7 +136,7 @@ function App() {
       )}
       
       {step === 'game' && (
-        <Game 
+        <Game2 
           participantData={participantData} 
           participantId={participantId}
           onGameComplete={handleGameComplete}

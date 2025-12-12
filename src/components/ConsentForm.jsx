@@ -9,10 +9,10 @@ const ConsentForm = ({ onConsent, onDecline }) => {
       <hr />
       <div className="legal well">
         <p>
-          We would like to invite you to take part in the following study named "Click Speed Study"
+          We would like to invite you to take part in the following study named "Swipe and Type Study"
         </p>
         <p>
-          This will take approximately XX minutes, and you will be compensated $X.XX upon completion.
+          This will take approximately 50 minutes, and you will be compensated $20 upon completion.
           <br />
           Please understand that we <em>reserve the right to not compensate entries</em> that fail to follow instructions.
         </p>
