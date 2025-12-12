@@ -67,7 +67,7 @@ const Instructions = ({ onStart, onPractice, currentPage = 0, setCurrentPage }) 
       )
     },
     {
-      title: "Opprtunities to Collect Rewards",
+      title: "Opportunities to Collect Rewards",
       content: (
         <div className="instructions-content">
           <h2>When Rewards Appear</h2>

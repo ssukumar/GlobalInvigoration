@@ -3,78 +3,166 @@ import { getRandomRoundDuration, getRandomKeySequence, GAME_CONFIG } from '../co
 import './game/Game.css';
 
 const PracticeMode = ({ onPracticeComplete }) => {
+  // Game state
   const [gameActive, setGameActive] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(8); // Will be set to random duration when practice starts
+  const [timeLeft, setTimeLeft] = useState(0);
   const [score, setScore] = useState(0);
-  const [lastClicked, setLastClicked] = useState(null);
-  const [gamePhase, setGamePhase] = useState('reaching'); // 'reaching' or 'coin'
-  const [coinClicks, setCoinClicks] = useState(0);
+  const [gamePhase, setGamePhase] = useState('reaching'); // 'reaching' or 'keypress'
   const [coinVisible, setCoinVisible] = useState(false);
   const [currentRound, setCurrentRound] = useState(1);
   const [totalCoinsCollected, setTotalCoinsCollected] = useState(0);
   const [canvasSize, setCanvasSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [showSpeedWarning, setShowSpeedWarning] = useState(false);
   const [showPlusFifty, setShowPlusFifty] = useState(false);
-  const canvasRef = useRef(null);
-  const gameCompletedRef = useRef(false);
-  const lastBarSwitchTime = useRef(null);
-  const speedWarningTimeout = useRef(null);
 
   // Key sequence state
   const [keySequence, setKeySequence] = useState([]);
   const [currentKeyIndex, setCurrentKeyIndex] = useState(0);
-  const [keyStates, setKeyStates] = useState([]); // Track status of each key: 'pending', 'correct', 'incorrect'
+  const [keyStates, setKeyStates] = useState([]); // 'pending', 'correct', 'incorrect'
 
-  // Cursor position state for custom cursor
+  // Cursor position and bar visibility
   const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
+  const [leftBarVisible, setLeftBarVisible] = useState(true);
+  const [rightBarVisible, setRightBarVisible] = useState(true);
 
-  const totalRounds = 2; // Practice mode only has 2 trials
+  // Refs
+  const canvasRef = useRef(null);
+  const gameCompletedRef = useRef(false);
+  const lastMousePosRef = useRef({ x: null, y: null });
+  const [dashOffset, setDashOffset] = useState(0);
+  const prevBarRef = useRef(null);
+  const speedWarningTimeout = useRef(null);
 
-  // Use config function for random round duration
-  const handleRandomRoundDuration = () => {
-    return getRandomRoundDuration();
-  };
+  const totalRounds = 2; // Practice mode has 2 trials
 
-  // Generate key sequence from config
-  const generateKeySequence = () => {
-    const sequence = getRandomKeySequence();
-    const sequenceLength = GAME_CONFIG.KEYS.PRACTICE_SEQUENCE_LENGTH;
-    
-    setKeySequence(sequence);
-    setCurrentKeyIndex(0);
-    // Initialize all keys as pending
-    setKeyStates(new Array(sequenceLength).fill('pending'));
-  };
+  // Animation constants
+  const DASH_SCALE = 0.28; // Slower dash movement
 
   // Bar dimensions
   const barWidth = canvasSize.width * 0.1;
   const barHeight = canvasSize.height;
 
-  // Bar positions (left and right edges)
-  const leftBar = {
-    x: 0,
-    y: 0,
-    width: barWidth,
-    height: barHeight
-  };
-  const rightBar = {
-    x: canvasSize.width - barWidth,
-    y: 0,
-    width: barWidth,
-    height: barHeight
-  };
+  const leftBar = { x: 0, y: 0, width: barWidth, height: barHeight };
+  const rightBar = { x: canvasSize.width - barWidth, y: 0, width: barWidth, height: barHeight };
 
-  // Coin position (center of screen, moved up more to center between score and sequence)
-  const coinPosition = {
-    x: canvasSize.width / 2,
-    y: canvasSize.height / 2 - 80
-  };
+  // Coin position (centered, mid-screen)
+  const coinPosition = { x: canvasSize.width / 2, y: canvasSize.height / 2 - 120 };
 
-  // Dynamic coin radius based on reward value (practice always uses practice value)
-  const getCoinRadius = () => {
-    const baseRadius = Math.min(canvasSize.width, canvasSize.height) * 0.12;
-    // Practice mode uses the practice reward value, so we'll make it medium-sized
-    return baseRadius * 0.85; // Medium coin (85% of base size)
+  // Reusable coin pile drawing function (supports practice reward value 30)
+  const drawCoinPile = (ctx, rewardValue, cue = false) => {
+    if (rewardValue === 0) {
+      ctx.beginPath();
+      ctx.arc(coinPosition.x, coinPosition.y, 30, 0, 2 * Math.PI);
+      ctx.fillStyle = cue ? '#dcdcdc' : '#f0f0f0';
+      ctx.fill();
+      ctx.strokeStyle = cue ? '#bfbfbf' : '#c0c0c0';
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.fillStyle = '#888888';
+      ctx.font = `bold ${24}px Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('0', coinPosition.x, coinPosition.y - 18);
+      return 0;
+    }
+
+    let numCoins, baseWidth;
+    if (rewardValue === 10) {
+      numCoins = 1; baseWidth = 1;
+    } else if (rewardValue === 60) {
+      numCoins = 6; baseWidth = 3;
+    } else if (rewardValue === 100) {
+      numCoins = 10; baseWidth = 4;
+    } else if (rewardValue === GAME_CONFIG.REWARDS.PRACTICE_VALUE) {
+      // Practice value (30) => 3 coins
+      numCoins = 3; baseWidth = 2;
+    } else {
+      // Fallback: show single coin
+      numCoins = 1; baseWidth = 1;
+    }
+
+    const coinRadiusLocal = Math.max(28, Math.floor(Math.min(canvasSize.width, canvasSize.height) * 0.035));
+    const spacing = coinRadiusLocal * 1.8;
+
+    let coinIndex = 0;
+    for (let row = 0; row < baseWidth; row++) {
+      const coinsInRow = row + 1;
+      const rowY = coinPosition.y + (row * spacing * 0.8);
+      const rowStartX = coinPosition.x - ((coinsInRow - 1) * spacing) / 2;
+
+      for (let col = 0; col < coinsInRow && coinIndex < numCoins; col++) {
+        const coinX = rowStartX + (col * spacing);
+        ctx.beginPath();
+        ctx.arc(coinX, rowY, coinRadiusLocal, 0, 2 * Math.PI);
+
+        if (cue) {
+          const gradient = ctx.createRadialGradient(
+            coinX - coinRadiusLocal * 0.3,
+            rowY - coinRadiusLocal * 0.3,
+            0,
+            coinX,
+            rowY,
+            coinRadiusLocal
+          );
+          gradient.addColorStop(0, '#e6e6e6');
+          gradient.addColorStop(0.7, '#bfbfbf');
+          gradient.addColorStop(1, '#9a9a9a');
+          ctx.fillStyle = gradient;
+          ctx.fill();
+          ctx.strokeStyle = '#7f7f7f';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          // central stripe
+          ctx.fillStyle = '#8c8c8c';
+          const stripeWidth = coinRadiusLocal * 0.12;
+          ctx.fillRect(
+            coinX - stripeWidth / 2,
+            rowY - coinRadiusLocal * 0.55,
+            stripeWidth,
+            coinRadiusLocal * 1.1
+          );
+        } else {
+          const gradient = ctx.createRadialGradient(
+            coinX - coinRadiusLocal * 0.3,
+            rowY - coinRadiusLocal * 0.3,
+            0,
+            coinX,
+            rowY,
+            coinRadiusLocal
+          );
+          gradient.addColorStop(0, '#FFD700');
+          gradient.addColorStop(0.7, '#FFA500');
+          gradient.addColorStop(1, '#FF8C00');
+          ctx.fillStyle = gradient;
+          ctx.fill();
+          ctx.strokeStyle = '#FF8C00';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.fillStyle = '#B8860B';
+          ctx.fillRect(
+            coinX - coinRadiusLocal * 0.1,
+            rowY - coinRadiusLocal * 0.4,
+            coinRadiusLocal * 0.2,
+            coinRadiusLocal * 0.8
+          );
+        }
+
+        coinIndex++;
+      }
+    }
+
+    const pileHeight = baseWidth * spacing * 0.8;
+
+    if (!cue) {
+      ctx.fillStyle = '#FFD700';
+      ctx.font = 'bold 32px "Arial", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(`${rewardValue} points`, coinPosition.x, coinPosition.y + pileHeight + 30);
+    }
+
+    return pileHeight;
   };
 
   // Handle window resize
@@ -92,9 +180,12 @@ const PracticeMode = ({ onPracticeComplete }) => {
       const timer = setInterval(() => {
         setTimeLeft(prev => {
           if (prev <= 1) {
-            setGamePhase('coin');
+            setGamePhase('keypress');
             setCoinVisible(true);
-            generateKeySequence(); // Generate new sequence for this round
+            const sequence = getRandomKeySequence();
+            setKeySequence(sequence);
+            setCurrentKeyIndex(0);
+            setKeyStates(new Array(sequence.length).fill('pending'));
             return 0;
           }
           return prev - 1;
@@ -104,68 +195,61 @@ const PracticeMode = ({ onPracticeComplete }) => {
     }
   }, [gameActive, gamePhase]);
 
-  // Handle keyboard input for coin interaction
+  // Handle keyboard input for coin collection
   useEffect(() => {
     const handleKeyPress = (event) => {
-      if (!gameActive || gamePhase !== 'coin' || !coinVisible || keySequence.length === 0) return;
-      
+      if (!gameActive || gamePhase !== 'keypress' || !coinVisible || keySequence.length === 0) return;
+
       const pressedKey = event.key.toLowerCase();
       const expectedKey = keySequence[currentKeyIndex];
-      
+
       if (pressedKey === expectedKey) {
-        // Mark key as correct
         setKeyStates(prev => {
           const newStates = [...prev];
           newStates[currentKeyIndex] = 'correct';
           return newStates;
         });
-        
+
         setCurrentKeyIndex(prev => {
           const nextIndex = prev + 1;
           if (nextIndex >= keySequence.length) {
-            // Sequence completed, coin collected
+            // Sequence completed
             setScore(prev => prev + GAME_CONFIG.REWARDS.PRACTICE_VALUE);
             setShowPlusFifty(true);
-            // Hide +50 animation after 2 seconds
-            setTimeout(() => {
-              setShowPlusFifty(false);
-            }, 2000);
+            setTimeout(() => setShowPlusFifty(false), 2000);
             setTotalCoinsCollected(prev => prev + 1);
+
             if (currentRound >= totalRounds) {
-              // Practice complete - return to instructions
+              // Practice complete
               setGameActive(false);
-              setKeySequence([]); // Clear sequence when practice is complete
-              setKeyStates([]); // Clear key states
+              setKeySequence([]);
+              setKeyStates([]);
               if (!gameCompletedRef.current) {
                 gameCompletedRef.current = true;
-                setTimeout(() => {
-                  onPracticeComplete();
-                }, 2000); // Wait for +20 animation to finish
+                setTimeout(() => onPracticeComplete(), 2000);
               }
             } else {
-              // Start next round
+              // Next round
               setCurrentRound(prev => prev + 1);
               setGamePhase('reaching');
-              setTimeLeft(handleRandomRoundDuration());
+              setTimeLeft(getRandomRoundDuration());
               setCoinVisible(false);
-              setCoinClicks(0);
-              setLastClicked(null);
-              setKeySequence([]); // Clear sequence for next round
-              setKeyStates([]); // Clear key states for next round
+              setLeftBarVisible(true);
+              setRightBarVisible(true);
+              prevBarRef.current = null;
+              setKeySequence([]);
+              setKeyStates([]);
             }
-            return 0; // Reset for next round
+            return 0;
           }
           return nextIndex;
         });
       } else {
-        // Mark key as incorrect but don't advance
         setKeyStates(prev => {
           const newStates = [...prev];
           newStates[currentKeyIndex] = 'incorrect';
           return newStates;
         });
-        
-        // Reset the incorrect key to pending after a brief delay
         setTimeout(() => {
           setKeyStates(prev => {
             const newStates = [...prev];
@@ -180,101 +264,80 @@ const PracticeMode = ({ onPracticeComplete }) => {
 
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [gameActive, gamePhase, coinVisible, currentRound, totalRounds, score, totalCoinsCollected, onPracticeComplete, keySequence, currentKeyIndex]);
+  }, [gameActive, gamePhase, coinVisible, currentRound, totalRounds, score, onPracticeComplete, keySequence, currentKeyIndex]);
 
-  // Handle mouse movement for bar hover detection
+  // Handle mouse movement with dash animation logic
   const handleMouseMove = (event) => {
-    if (!gameActive) return;
+    if (!gameActive || gamePhase !== 'reaching') return;
 
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
 
-    // Update cursor position for custom cursor drawing
     setCursorPosition({ x, y });
 
-    // Bar hover logic (no points, just visual feedback)
-    if (
-      x >= leftBar.x && x <= leftBar.x + leftBar.width &&
-      y >= leftBar.y && y <= leftBar.y + leftBar.height
-    ) {
-      if (lastClicked !== 'left') {
-        setLastClicked('left');
-        lastBarSwitchTime.current = Date.now();
-        // Clear any existing warning when switching bars
-        setShowSpeedWarning(false);
-        if (speedWarningTimeout.current) {
-          clearTimeout(speedWarningTimeout.current);
+    // Determine which bar cursor is in
+    const inLeftBar = x >= leftBar.x && x <= leftBar.x + leftBar.width && y >= leftBar.y && y <= leftBar.y + leftBar.height;
+    const inRightBar = x >= rightBar.x && x <= rightBar.x + rightBar.width && y >= rightBar.y && y <= rightBar.y + rightBar.height;
+
+    // Bar visibility logic (Option A)
+    if (inLeftBar && prevBarRef.current !== 'left') {
+      setLeftBarVisible(false);
+      setRightBarVisible(true);
+      prevBarRef.current = 'left';
+      setShowSpeedWarning(false);
+      if (speedWarningTimeout.current) clearTimeout(speedWarningTimeout.current);
+      speedWarningTimeout.current = setTimeout(() => setShowSpeedWarning(true), 2000);
+    } else if (inRightBar && prevBarRef.current !== 'right') {
+      setLeftBarVisible(true);
+      setRightBarVisible(false);
+      prevBarRef.current = 'right';
+      setShowSpeedWarning(false);
+      if (speedWarningTimeout.current) clearTimeout(speedWarningTimeout.current);
+      speedWarningTimeout.current = setTimeout(() => setShowSpeedWarning(true), 2000);
+    } else if (!inLeftBar && !inRightBar && prevBarRef.current !== null) {
+      prevBarRef.current = null;
+      setShowSpeedWarning(false);
+      if (speedWarningTimeout.current) clearTimeout(speedWarningTimeout.current);
+    }
+
+    // Advance dashOffset only when cursor moves toward the visible bar
+    const lastPos = lastMousePosRef.current;
+    if (lastPos.x !== null && lastPos.y !== null) {
+      const dx = x - lastPos.x;
+      const dy = y - lastPos.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > 0) {
+        const movingTowardVisibleBar = (
+          (rightBarVisible && dx > 0) ||
+          (leftBarVisible && dx < 0)
+        );
+        if (movingTowardVisibleBar) {
+          const TOTAL_PATTERN = 20 + 15; // dash + gap
+          setDashOffset(prev => (prev + dist * DASH_SCALE) % TOTAL_PATTERN);
         }
-        // Set warning to appear after 2 seconds on this bar
-        speedWarningTimeout.current = setTimeout(() => {
-          setShowSpeedWarning(true);
-        }, 2000);
-      }
-    } else if (
-      x >= rightBar.x && x <= rightBar.x + rightBar.width &&
-      y >= rightBar.y && y <= rightBar.y + rightBar.height
-    ) {
-      if (lastClicked !== 'right') {
-        setLastClicked('right');
-        lastBarSwitchTime.current = Date.now();
-        // Clear any existing warning when switching bars
-        setShowSpeedWarning(false);
-        if (speedWarningTimeout.current) {
-          clearTimeout(speedWarningTimeout.current);
-        }
-        // Set warning to appear after 2 seconds on this bar
-        speedWarningTimeout.current = setTimeout(() => {
-          setShowSpeedWarning(true);
-        }, 2000);
       }
     }
+
+    lastMousePosRef.current = { x, y };
   };
 
-  // Start game when component mounts
+  // Start game on mount
   useEffect(() => {
     setGameActive(true);
     setGamePhase('reaching');
-    setTimeLeft(handleRandomRoundDuration()); // Set random duration for first round
+    setTimeLeft(getRandomRoundDuration());
   }, []);
 
-  // Cleanup speed warning timeout on unmount
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (speedWarningTimeout.current) {
-        clearTimeout(speedWarningTimeout.current);
-      }
+      if (speedWarningTimeout.current) clearTimeout(speedWarningTimeout.current);
     };
   }, []);
 
-  // Handle cursor visibility based on game phase
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    // Remove existing cursor classes
-    canvas.classList.remove('cursor-visible', 'cursor-hidden');
-
-    if (gamePhase === 'coin') {
-      // Hide cursor during reward collection
-      canvas.classList.add('cursor-hidden');
-    } else {
-      // Show yellow circle cursor during reaching phase
-      canvas.classList.add('cursor-visible');
-    }
-  }, [gamePhase]);
-
-  // Set initial cursor class when component mounts
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (canvas) {
-      // Start with visible cursor since practice starts in 'reaching' phase
-      canvas.classList.add('cursor-visible');
-    }
-  }, []);
-
-  // Draw the game
+  // Canvas drawing
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -282,54 +345,89 @@ const PracticeMode = ({ onPracticeComplete }) => {
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvasSize.width, canvasSize.height);
 
-    // Draw background
+    // Background
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvasSize.width, canvasSize.height);
 
     if (gamePhase === 'reaching') {
-      // Always draw bars during reaching phase
-      // Draw left bar
-      ctx.beginPath();
-      ctx.rect(leftBar.x, leftBar.y, leftBar.width, leftBar.height);
-      ctx.fillStyle = lastClicked === 'left' ? '#27ae60' : '#3498db';
-      ctx.fill();
-      ctx.strokeStyle = '#2980b9';
+      // Draw left bar (conditional visibility)
+      if (leftBarVisible) {
+        ctx.beginPath();
+        ctx.rect(leftBar.x, leftBar.y, leftBar.width, leftBar.height);
+        ctx.fillStyle = '#3498db';
+        ctx.fill();
+        ctx.strokeStyle = '#2980b9';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+
+      // Draw right bar (conditional visibility)
+      if (rightBarVisible) {
+        ctx.beginPath();
+        ctx.rect(rightBar.x, rightBar.y, rightBar.width, rightBar.height);
+        ctx.fillStyle = '#3498db';
+        ctx.fill();
+        ctx.strokeStyle = '#2980b9';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+
+      // Draw animated vertical dashed line down the center
+      const centerX = canvasSize.width / 2;
+      const dashLength = 20;
+      const gapLength = 15;
+      ctx.strokeStyle = '#FFD700';
       ctx.lineWidth = 3;
+      ctx.setLineDash([dashLength, gapLength]);
+      ctx.lineDashOffset = -dashOffset;
+      ctx.beginPath();
+      ctx.moveTo(centerX, -canvasSize.height);
+      ctx.lineTo(centerX, canvasSize.height * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Draw cue coin pile and countdown when timeLeft <= 3
+      if (timeLeft <= 3) {
+        const rewardValue = GAME_CONFIG.REWARDS.PRACTICE_VALUE;
+        const pileHeight = drawCoinPile(ctx, rewardValue, true);
+
+        const countdownNum = Math.max(0, Math.ceil(timeLeft));
+        const line1 = `${rewardValue} points`;
+        const line2 = `in ${countdownNum}...`;
+
+        const smallFontSize = 32;
+        ctx.fillStyle = '#FFD700';
+        ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+        ctx.font = `bold ${smallFontSize}px "Arial", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.lineWidth = 6;
+
+        const startY = coinPosition.y + pileHeight + 30;
+        ctx.strokeText(line1, coinPosition.x, startY);
+        ctx.fillText(line1, coinPosition.x, startY);
+
+        const bigFontSize = smallFontSize;
+        ctx.font = `bold ${bigFontSize}px "Arial", sans-serif`;
+        const numberY = startY + smallFontSize + 6;
+        ctx.strokeText(line2, coinPosition.x, numberY);
+        ctx.fillText(line2, coinPosition.x, numberY);
+      }
+
+      // Draw cursor (yellow circle)
+      ctx.beginPath();
+      ctx.arc(cursorPosition.x, cursorPosition.y, 16, 0, 2 * Math.PI);
+      ctx.fillStyle = '#FFD700';
+      ctx.fill();
+      ctx.strokeStyle = '#FFA500';
+      ctx.lineWidth = 2;
       ctx.stroke();
 
-      // Draw right bar
-      ctx.beginPath();
-      ctx.rect(rightBar.x, rightBar.y, rightBar.width, rightBar.height);
-      ctx.fillStyle = lastClicked === 'right' ? '#27ae60' : '#3498db';
-      ctx.fill();
-      ctx.strokeStyle = '#2980b9';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-
-              // Draw gray circle with reward value when 3 seconds or less remain
-        if (timeLeft <= 3) {
-          // Draw gray circle at coin position
-          ctx.beginPath();
-          ctx.arc(coinPosition.x, coinPosition.y, getCoinRadius(), 0, 2 * Math.PI);
-          ctx.fillStyle = '#808080'; // Gray color
-          ctx.fill();
-          ctx.strokeStyle = '#606060'; // Darker gray border
-          ctx.lineWidth = 3;
-          ctx.stroke();
-          
-          // Draw reward value in the center of the circle (practice mode always uses 50)
-          ctx.fillStyle = '#ffffff'; // White text
-          ctx.font = `bold ${getCoinRadius() * 0.6}px "Arial", sans-serif`; // Slightly smaller font for numbers
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(GAME_CONFIG.REWARDS.PRACTICE_VALUE.toString(), coinPosition.x, coinPosition.y);
-        }
-
-      // Draw score (centered, bigger)
+      // Draw score
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 48px "Orbitron", "Courier New", monospace';
+      ctx.font = 'bold 64px "Orbitron", "Courier New", monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`Score: ${score}`, canvasSize.width / 2, 80);
+      ctx.fillText(`Score: ${score}`, canvasSize.width / 2, 90);
 
       // Draw instructions
       ctx.fillStyle = '#ffffff';
@@ -337,7 +435,7 @@ const PracticeMode = ({ onPracticeComplete }) => {
       ctx.textAlign = 'center';
       ctx.fillText('Move your cursor back and forth between the bars!', canvasSize.width / 2, canvasSize.height - 50);
 
-      // Draw speed warning if active
+      // Draw speed warning
       if (showSpeedWarning) {
         ctx.fillStyle = '#FF6B6B';
         ctx.font = 'bold 20px "Orbitron", "Courier New", monospace';
@@ -345,171 +443,80 @@ const PracticeMode = ({ onPracticeComplete }) => {
         ctx.fillText('Move Faster!', canvasSize.width / 2, canvasSize.height - 100);
       }
 
-      // Draw +50 animation if active
+      // Draw +50 animation
       if (showPlusFifty) {
         ctx.fillStyle = '#00FF00';
         ctx.font = 'bold 36px "Orbitron", "Courier New", monospace';
         ctx.textAlign = 'center';
         ctx.fillText(`+${GAME_CONFIG.REWARDS.PRACTICE_VALUE}`, canvasSize.width / 2, canvasSize.height / 2 - 100);
       }
-    } else if (gamePhase === 'coin') {
-      // No bars drawn during coin phase - participant focuses only on coin
-
-      // Draw coin
+    } else if (gamePhase === 'keypress') {
+      // Draw coin pile
       if (coinVisible) {
-                        // Draw practice coin pile (50 points = 10 coins)
-        const drawPracticeCoinPile = (centerX, centerY) => {
-          const coinRadius = 20; // All coins are the same size
-          const numCoins = 10;
-          const baseWidth = 4;
-          
-          // Calculate spacing for slight overlap
-          const spacing = coinRadius * 1.8;
-          
-          // Draw coins in pyramid formation
-          let coinIndex = 0;
-          for (let row = 0; row < baseWidth; row++) {
-            const coinsInRow = row + 1;
-            const rowY = centerY + (row * spacing * 0.8);
-            const rowStartX = centerX - ((coinsInRow - 1) * spacing) / 2;
-            
-            for (let col = 0; col < coinsInRow && coinIndex < numCoins; col++) {
-              const coinX = rowStartX + (col * spacing);
-              
-              // Draw single coin
-              ctx.beginPath();
-              ctx.arc(coinX, rowY, coinRadius, 0, 2 * Math.PI);
-              
-              // Create uniform gold gradient
-              const gradient = ctx.createRadialGradient(
-                coinX - coinRadius * 0.3,
-                rowY - coinRadius * 0.3,
-                0,
-                coinX,
-                rowY,
-                coinRadius
-              );
-              gradient.addColorStop(0, '#FFD700'); // Bright gold center
-              gradient.addColorStop(0.7, '#FFA500'); // Orange gold mid
-              gradient.addColorStop(1, '#FF8C00'); // Dark orange edge
-              
-              ctx.fillStyle = gradient;
-              ctx.fill();
-              
-              // Coin border
-              ctx.strokeStyle = '#FF8C00'; // Dark orange border
-              ctx.lineWidth = 2;
-              ctx.stroke();
-
-              // Simple dark vertical bar in the middle
-              ctx.fillStyle = '#B8860B'; // Dark gold bar
-              ctx.fillRect(
-                coinX - coinRadius * 0.1,
-                rowY - coinRadius * 0.4,
-                coinRadius * 0.2,
-                coinRadius * 0.8
-              );
-              
-              coinIndex++;
-            }
-          }
-        };
-        
-        // Draw the practice coin pile
-        drawPracticeCoinPile(coinPosition.x, coinPosition.y);
-        
-        // Draw the reward value below the coin pile in gold text
-        ctx.fillStyle = '#FFD700'; // Gold text
-        ctx.font = 'bold 24px "Arial", sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        
-        // Practice pile height (10 coins = 4 rows = 80px height)
-        const pileHeight = 80;
-        ctx.fillText('50 points', coinPosition.x, coinPosition.y + pileHeight + 30);
+        const pileHeight = drawCoinPile(ctx, GAME_CONFIG.REWARDS.PRACTICE_VALUE, false);
       }
 
-      // Draw key sequence display
+      // Draw key sequence
       if (keySequence.length > 0) {
-        // Key sequence display - show all 10 keys in a row
-        const keySpacing = 45;
+        const keySpacing = 50;
         const sequenceStartX = coinPosition.x - (keySequence.length * keySpacing) / 2;
-        // Position below the practice coin pile (pile height = 80) - moved lower for better spacing
-        const sequenceY = coinPosition.y + 80 + 120;
-        
-        ctx.font = 'bold 36px "Arial", sans-serif';
+        const sequenceY = coinPosition.y + 200;
+
+        ctx.font = 'bold 48px "Arial", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        
+
         keySequence.forEach((key, index) => {
           const keyX = sequenceStartX + (index * keySpacing);
-          
-          // Determine color based on key state
+
           if (keyStates[index] === 'correct') {
-            ctx.fillStyle = '#27ae60'; // Green
+            ctx.fillStyle = '#27ae60';
           } else if (keyStates[index] === 'incorrect') {
-            ctx.fillStyle = '#e74c3c'; // Red
+            ctx.fillStyle = '#e74c3c';
           } else if (index === currentKeyIndex) {
-            ctx.fillStyle = '#f39c12'; // Orange for current key
+            ctx.fillStyle = '#f39c12';
           } else {
-            ctx.fillStyle = '#7f8c8d'; // Grey for pending
+            ctx.fillStyle = '#7f8c8d';
           }
-          
+
           ctx.fillText(key.toUpperCase(), keyX, sequenceY);
         });
-        
-        // Show current key instruction below the sequence
+
+        // Current key instruction
         if (currentKeyIndex < keySequence.length) {
           ctx.fillStyle = '#FFD700';
           ctx.font = 'bold 24px "Arial", sans-serif';
-          ctx.fillText(`Press: ${keySequence[currentKeyIndex].toUpperCase()}`, coinPosition.x, sequenceY + 40);
+          ctx.fillText(`Press: ${keySequence[currentKeyIndex].toUpperCase()}`, coinPosition.x, sequenceY + 50);
         }
-        
+
         // Progress indicator
         const progressText = `${currentKeyIndex}/${keySequence.length}`;
         ctx.fillStyle = '#ecf0f1';
         ctx.font = '20px "Arial", sans-serif';
-        ctx.fillText(progressText, coinPosition.x, sequenceY + 65);
+        ctx.fillText(progressText, coinPosition.x, sequenceY + 75);
       }
 
-      // Draw score (centered, bigger)
+      // Draw score
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 48px "Orbitron", "Courier New", monospace';
+      ctx.font = 'bold 64px "Orbitron", "Courier New", monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`Score: ${score}`, canvasSize.width / 2, 80);
+      ctx.fillText(`Score: ${score}`, canvasSize.width / 2, 90);
 
       // Draw instructions
       ctx.fillStyle = '#ffffff';
       ctx.font = '16px "Press Start 2P", "Courier New", monospace';
       ctx.textAlign = 'center';
-      if (keySequence.length > 0) {
-        ctx.fillText('Press the highlighted keys in sequence to collect the coin!', canvasSize.width / 2, canvasSize.height - 50);
-      } else {
-        ctx.fillText('Get ready to follow the key sequence!', canvasSize.width / 2, canvasSize.height - 50);
-      }
+      ctx.fillText('Press the highlighted keys in sequence to collect the coin!', canvasSize.width / 2, canvasSize.height - 50);
 
-      // Draw +50 animation if active
+      // Draw +50 animation
       if (showPlusFifty) {
         ctx.fillStyle = '#00FF00';
         ctx.font = 'bold 36px "Orbitron", "Courier New", monospace';
         ctx.textAlign = 'center';
         ctx.fillText(`+${GAME_CONFIG.REWARDS.PRACTICE_VALUE}`, canvasSize.width / 2, canvasSize.height / 2 - 100);
       }
-
-      // Draw custom cursor (only during reaching phase)
-      if (gamePhase === 'reaching' && gameActive) {
-        // Draw yellow circle cursor
-        ctx.beginPath();
-        ctx.arc(cursorPosition.x, cursorPosition.y, 8, 0, 2 * Math.PI);
-        ctx.fillStyle = '#FFD700'; // Bright yellow
-        ctx.fill();
-        ctx.strokeStyle = '#FFA500'; // Orange border
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
     }
-
-  }, [timeLeft, score, lastClicked, gamePhase, coinVisible, coinClicks, currentRound, totalRounds, canvasSize, showSpeedWarning, showPlusFifty, keySequence, currentKeyIndex, keyStates, cursorPosition, gameActive]);
+  }, [timeLeft, score, gamePhase, coinVisible, canvasSize, showSpeedWarning, showPlusFifty, keySequence, currentKeyIndex, keyStates, cursorPosition, gameActive, leftBarVisible, rightBarVisible]);
 
   return (
     <div className="game-container">
