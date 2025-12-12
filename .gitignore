@@ -68,6 +68,7 @@ node_modules/
 
 # dotenv environment variables file
 .env
+.env.local
 
 # .DS_Store ignored
 .DS_Store
