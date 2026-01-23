@@ -36,11 +36,11 @@ const Instructions = ({ onStart, onPractice, currentPage = 0, setCurrentPage }) 
       title: "Swiping to Move Forward",
       content: (
         <div className="instructions-content">
-          <h2>Help the explorer take steps to move forward</h2>
+          <h2>Take steps to move forward</h2>
           <p>
-            Imagine you are guiding an explorer walking on a road. Each time the explorer takes a left step and a right step,
+            Imagine you are walking on a road. Each time you take a left step and a right step,
             they move one step forward. To make a left step, swipe your cursor to the left bar; to make a right step, swipe to the right bar.
-            Make sure to alternate these swipes makes the explorer advance. 
+            Make sure to alternate these swipes makes you advance. 
           </p>
           <h3>How your swipes map to steps</h3>
           <ul>
@@ -103,7 +103,7 @@ const Instructions = ({ onStart, onPractice, currentPage = 0, setCurrentPage }) 
         <div className="instructions-content">
           <h2>In summary...</h2>
           <p>
-            Swipe left and right between the bars to take alternating steps and move the explorer forward.
+            Swipe left and right between the bars to take alternating steps and move forward.
             When a reward appears, type the displayed key sequence exactly to collect it.
           </p>
           <div className="final-reminder">

@@ -24,6 +24,7 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
   const [totalCoinsCollected, setTotalCoinsCollected] = useState(0);
   const [canvasSize, setCanvasSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [showSpeedWarning, setShowSpeedWarning] = useState(false);
+  const [showBarExitWarning, setShowBarExitWarning] = useState(false); // Warning when cursor leaves bar too early
   // Dash animation offset (pixels) for the center dashed-line animation
   const [dashOffset, setDashOffset] = useState(0);
   const canvasRef = useRef(null);
@@ -34,6 +35,13 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
   const lastMousePosRef = useRef({ x: null, y: null });
   // Track previous bar occupancy to detect leaving/entering bars
   const prevBarRef = useRef(null);
+  // Track when cursor entered current bar (for 500ms delay before hiding)
+  const barEntryTimeRef = useRef(null);
+  const barHideTimeoutRef = useRef(null);
+  // Track if cursor exited bar prematurely (requiring return to same bar)
+  const prematureExitBarRef = useRef(null);
+  // Track which bar (if any) is currently in the process of hiding (timeout active and bar still visible)
+  const barHidingRef = useRef(null);
 
   // Per-bar visibility flags: hide when cursor leaves bar, re-show when opposite bar is reached
   const [leftBarVisible, setLeftBarVisible] = useState(true);
@@ -49,6 +57,8 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
   const [currentEnvironment, setCurrentEnvironment] = useState(null); // Derived from block index
   const [pendingNextBlockIndex, setPendingNextBlockIndex] = useState(null); // Next block during break screen
   const [environmentRound, setEnvironmentRound] = useState(1); // Round within current block
+  const [isReachingOnlyPhase, setIsReachingOnlyPhase] = useState(false); // True during prefix/suffix reaching-only time
+  const [reachingOnlyTimeLeft, setReachingOnlyTimeLeft] = useState(0); // Time remaining in reaching-only phase
   const [currentRewardValue, setCurrentRewardValue] = useState(0);
   const [currentRoundRewardValue, setCurrentRoundRewardValue] = useState(0); // Reward value for current round (stable during cue)
   const [showRewardAnimation, setShowRewardAnimation] = useState(false);
@@ -348,21 +358,8 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
   // Coin pile drawing function - copied from PracticeMode
   const drawCoinPile = (ctx, rewardValue, cue = false) => {
     if (rewardValue === 0) {
-      // No reward - blank circle
-      ctx.beginPath();
-      ctx.arc(coinPosition.x, coinPosition.y, coinRadius, 0, 2 * Math.PI);
-      ctx.fillStyle = cue ? '#dcdcdc' : '#f0f0f0'; // Slightly different gray for cue
-      ctx.fill();
-      ctx.strokeStyle = cue ? '#bfbfbf' : '#c0c0c0'; // Darker gray border
-      ctx.lineWidth = 4;
-      ctx.stroke();
-
-      // Display "0" at the top
-      ctx.fillStyle = '#888888';
-      ctx.font = `bold ${coinRadius * 0.4}px Arial`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('0', coinPosition.x, coinPosition.y - coinRadius * 0.7);
+      // No reward - leave the coin pile empty (no drawing)
+      // Return a pile height of 0 so callers can position text correctly
       return 0;
     }
     
@@ -536,7 +533,9 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
         setScore(prev => prev + currentRewardValue);
         setTotalCoinsCollected(prev => prev + 1);
         setShowRewardAnimation(true);
-        setRewardAnimationText(`+${currentRewardValue}!`);
+        if (currentRewardValue > 0) {
+          setRewardAnimationText(`+${currentRewardValue} points!`);
+        }
         
         // Add sequence complete game state and reward receipt event
         setKeyPressGameStateArray(prev => [...prev, 'SC']); // Sequence complete
@@ -627,15 +626,33 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     if (!gameActive || gamePhase !== 'reaching') return;
     
     const timer = setInterval(() => {
+      // Handle reaching-only phase countdown
+      if (isReachingOnlyPhase) {
+        setReachingOnlyTimeLeft(prev => {
+          if (prev <= 1) {
+            // Reaching-only phase complete, transition to normal rounds
+            setIsReachingOnlyPhase(false);
+            // Start first normal round
+            const roundDuration = getRandomRoundDuration();
+            const sequence = getRandomKeySequence();
+            setTimeLeft(roundDuration);
+            setKeySequence(sequence);
+            setKeyStates(new Array(sequence.length).fill('pending'));
+            setRoundRewardValue(currentBlockIndex, 1); // Start at round 1
+            return 0;
+          }
+          return prev - 1;
+        });
+        return;
+      }
+
       setTimeLeft(prev => {
         if (prev <= 1) {
-          // Time's up, show reward
+          // Time's up in normal round - show reward
           setGamePhase('coin');
           setCoinVisible(true);
           
-          // Use the stable reward value computed for the round (block-based)
-          // `setRoundRewardValue` sets `currentRoundRewardValue` earlier when a round starts.
-          // Use that value for scoring/display when the coin phase begins.
+          // Use the stable reward value computed for the round
           const rewardValue = currentRoundRewardValue;
           setCurrentRewardValue(rewardValue);
           
@@ -658,7 +675,7 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     }, 1000);
     
     return () => clearInterval(timer);
-  }, [gameActive, gamePhase, environmentRound, currentEnvironment, keySequence.length]);
+  }, [gameActive, gamePhase, environmentRound, currentEnvironment, currentBlockIndex, keySequence.length, isReachingOnlyPhase]);
 
   // Start reward tracking when key sequence is generated - copied from working Game2.jsx
   useEffect(() => {
@@ -801,14 +818,79 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     const currentBar = inLeft ? 'left' : inRight ? 'right' : null;
 
     // Option A behavior (chosen):
-    // - When the cursor enters a bar, that bar disappears immediately and the opposite bar becomes visible.
-    // - Leaving into neutral does not change visibility (visibility toggles on entry).
+    // - When the cursor enters a bar, that bar disappears after 500ms
+    // - If cursor leaves before 500ms, show warning, freeze opposite bar, and RESET the 500ms timer
+    // - Cursor must return and stay for a fresh 500ms to hide the bar
     const prevBar = prevBarRef.current;
+    
     if (currentBar !== prevBar) {
+      // If leaving a bar before hide timeout completes AND bar is still actively hiding, show warning
+      if (prevBar !== null && currentBar === null && barHidingRef.current === prevBar) {
+        setShowBarExitWarning(true);
+        prematureExitBarRef.current = prevBar;
+        // Clear the timeout so the bar won't disappear (must restart on return)
+        if (barHideTimeoutRef.current) {
+          clearTimeout(barHideTimeoutRef.current);
+          barHideTimeoutRef.current = null;
+        }
+        barHidingRef.current = null; // Bar is no longer actively hiding
+        // Warning auto-hides after 2 seconds
+        setTimeout(() => {
+          setShowBarExitWarning(false);
+        }, 2000);
+
+        // Keep current bar ref to prevent further changes
+        prevBarRef.current = currentBar;
+        return;
+      }
+      
+      // If we're returning to the bar that was exited early, restart the timeout
+      if (currentBar === prematureExitBarRef.current) {
+        setShowBarExitWarning(false);
+        // Restart the hide timeout for this bar
+        barHidingRef.current = prematureExitBarRef.current;
+        
+        if (currentBar === 'left') {
+          barHideTimeoutRef.current = setTimeout(() => {
+            setLeftBarVisible(false);
+            barEntryTimeRef.current = null;
+            prematureExitBarRef.current = null;
+            barHidingRef.current = null;
+          }, 500);
+        } else if (currentBar === 'right') {
+          barHideTimeoutRef.current = setTimeout(() => {
+            setRightBarVisible(false);
+            barEntryTimeRef.current = null;
+            prematureExitBarRef.current = null;
+            barHidingRef.current = null;
+          }, 500);
+        }
+        prevBarRef.current = currentBar;
+        return;
+      }
+      
+      // If in recovery mode and cursor goes somewhere else, ignore
+      if (prematureExitBarRef.current && currentBar !== prematureExitBarRef.current) {
+        prevBarRef.current = currentBar;
+        return;
+      }
+      
+      // Clear existing timeout if switching bars normally
+      if (barHideTimeoutRef.current) {
+        clearTimeout(barHideTimeoutRef.current);
+      }
+      
       if (currentBar === 'left') {
-        // Entered left: hide left immediately, ensure right visible
-        setLeftBarVisible(false);
         setRightBarVisible(true);
+        setShowBarExitWarning(false);
+        barHidingRef.current = 'left'; // Mark that left bar is now hiding
+        
+        barHideTimeoutRef.current = setTimeout(() => {
+          setLeftBarVisible(false);
+          barEntryTimeRef.current = null;
+          prematureExitBarRef.current = null; // Clear recovery mode
+          barHidingRef.current = null; // Bar is now hidden, no longer in hiding process
+        }, 500);
 
         if (lastClicked !== 'left') {
           setLastClicked('left');
@@ -822,9 +904,16 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
           }, 2000);
         }
       } else if (currentBar === 'right') {
-        // Entered right: hide right immediately, ensure left visible
-        setRightBarVisible(false);
         setLeftBarVisible(true);
+        setShowBarExitWarning(false);
+        barHidingRef.current = 'right'; // Mark that right bar is now hiding
+        
+        barHideTimeoutRef.current = setTimeout(() => {
+          setRightBarVisible(false);
+          barEntryTimeRef.current = null;
+          prematureExitBarRef.current = null; // Clear recovery mode
+          barHidingRef.current = null; // Bar is now hidden, no longer in hiding process
+        }, 500);
 
         if (lastClicked !== 'right') {
           setLastClicked('right');
@@ -837,9 +926,11 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
             setShowSpeedWarning(true);
           }, 2000);
         }
+      } else if (currentBar === null) {
+        // Moved to neutral - clear the hiding marker
+        barHidingRef.current = null;
       }
 
-      // If we've moved to neutral (currentBar === null), do nothing to visibility per Option A
       prevBarRef.current = currentBar;
     }
   };
@@ -885,18 +976,31 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     setValidityArray([]);
     setCurrentReachNumber(1);
     setLastWallPosition(null);
-    setCurrentKeytapNumber(1);    // Get random round duration and key sequence
-    const roundDuration = getRandomRoundDuration();
-    const sequence = getRandomKeySequence();
+    setCurrentKeytapNumber(1);
     
-    setTimeLeft(roundDuration);
-    setKeySequence(sequence);
-    setKeyStates(new Array(sequence.length).fill('pending'));
+    // Start with reaching-only phase for the first block
+    const isFirstBlock = initialBlockIndex === 0;
+    if (isFirstBlock) {
+      setIsReachingOnlyPhase(true);
+      setReachingOnlyTimeLeft(GAME_CONFIG.BLOCKS.REACHING_ONLY_DURATION);
+      setTimeLeft(0); // Not used during reaching-only phase
+      setKeySequence([]);
+      setKeyStates([]);
+    } else {
+      // Normal start for non-first blocks
+      setIsReachingOnlyPhase(false);
+      const roundDuration = getRandomRoundDuration();
+      const sequence = getRandomKeySequence();
+      
+      setTimeLeft(roundDuration);
+      setKeySequence(sequence);
+      setKeyStates(new Array(sequence.length).fill('pending'));
+      
+      // Set the reward value for the first round using block index
+      setRoundRewardValue(initialBlockIndex, 1);
+    }
     
-    // Set the reward value for the first round using block index
-    setRoundRewardValue(initialBlockIndex, 1);
-    
-    console.log('Game started with:', { initialBlockIndex, initialEnvironment, roundDuration, sequence });
+    console.log('Game started with:', { initialBlockIndex, initialEnvironment });
   };
 
   // Initialize game when component mounts - copied from working Game2.jsx
@@ -917,6 +1021,9 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     return () => {
       if (speedWarningTimeout.current) {
         clearTimeout(speedWarningTimeout.current);
+      }
+      if (barHideTimeoutRef.current) {
+        clearTimeout(barHideTimeoutRef.current);
       }
     };
   }, []);
@@ -1005,8 +1112,8 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
       ctx.stroke();
       ctx.setLineDash([]); // Reset to solid
 
-      // Draw gray coin cue and countdown when 3 seconds or less remain
-      if (timeLeft <= 3) {
+      // Draw gray coin cue and countdown when 3 seconds or less remain (skip for reaching-only)
+      if (timeLeft <= 3 && !isReachingOnlyPhase) {
         // Use the stable reward value for this round
         const rewardValue = currentRoundRewardValue;
 
@@ -1053,6 +1160,14 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
         ctx.fillText('Move Faster!', canvasSize.width / 2, canvasSize.height - 100);
       }
 
+      // Draw bar exit warning if active
+      if (showBarExitWarning) {
+        ctx.fillStyle = '#FF9500'; // Orange warning color
+        ctx.font = 'bold 24px "Orbitron", "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('Return to the bar!', canvasSize.width / 2, canvasSize.height - 150);
+      }
+
       // Draw reward animation if active
       if (showRewardAnimation) {
         ctx.fillStyle = '#00FF00';
@@ -1071,82 +1186,52 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
 
       // Draw coin/reward based on reward value
       if (coinVisible) {
-        if (currentRewardValue === 0) {
-          // No reward - blank circle
-          ctx.beginPath();
-          ctx.arc(coinPosition.x, coinPosition.y, coinRadius, 0, 2 * Math.PI);
-          ctx.fillStyle = '#f0f0f0'; // Light gray
-          ctx.fill();
-          ctx.strokeStyle = '#c0c0c0'; // Darker gray border
-          ctx.lineWidth = 4;
-          ctx.stroke();
-          
-          // Display "0" at the top
-          const text = '0';
-          const fontSize = coinRadius * 0.4;
-          ctx.font = `bold ${fontSize}px "Orbitron", "Courier New", monospace`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          
-          // For single character, just place it at the top
-          const charX = coinPosition.x;
-          const charY = coinPosition.y - coinRadius * 0.7;
-          
-          // Draw shadow
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.4)'; // Lighter shadow for gray coin
-          ctx.fillText(text, charX + 1, charY + 1);
-          
-          // Draw main character
-          ctx.fillStyle = '#888888'; // Medium gray
-          ctx.fillText(text, charX, charY);
-        } else {
-          // Use coin pile system from PracticeMode
-          const pileHeight = drawCoinPile(ctx, currentRewardValue);
-          
-          // Draw key sequence below coin pile
-          if (keySequence.length > 0) {
-            const sequenceStartX = coinPosition.x - (keySequence.length * 40) / 2;
-            // Adjust sequence position based on reward value - lower for smaller rewards
-            let sequenceY;
-          if (currentRewardValue === 10) {
-              sequenceY = coinPosition.y + pileHeight + 120; // Lower for 10 points
-          } else {
-              sequenceY = coinPosition.y + pileHeight + 80; // Standard position for 30/50 points
-            }
-        
-            keySequence.forEach((key, index) => {
-              const keyX = sequenceStartX + (index * 48);
+        // drawCoinPile is safe to call for rewardValue === 0 (it will return 0 and not draw)
+        const pileHeight = drawCoinPile(ctx, currentRewardValue);
 
-          // Determine color based on key state
-          if (keyStates[index] === 'correct') {
-            ctx.fillStyle = '#27ae60'; // Green
-          } else if (keyStates[index] === 'incorrect') {
-            ctx.fillStyle = '#e74c3c'; // Red
-          } else if (index === currentKeyIndex) {
-            ctx.fillStyle = '#f39c12'; // Orange for current key
+        // Draw key sequence below coin pile for ALL reward values (including zero)
+        if (keySequence.length > 0) {
+          const sequenceStartX = coinPosition.x - (keySequence.length * 40) / 2;
+          // Adjust sequence position based on reward value - lower for smaller rewards
+          let sequenceY;
+          if (currentRewardValue === 10) {
+            sequenceY = coinPosition.y + pileHeight + 120; // Lower for 10 points
           } else {
-            ctx.fillStyle = '#7f8c8d'; // Grey for pending
+            sequenceY = coinPosition.y + pileHeight + 80; // Standard position
           }
 
-              ctx.font = 'bold 48px "Arial", sans-serif';
-          ctx.fillText(key.toUpperCase(), keyX, sequenceY);
-        });
-        
-            // Draw "Press:" text
+          keySequence.forEach((key, index) => {
+            const keyX = sequenceStartX + (index * 48);
+
+            // Determine color based on key state
+            if (keyStates[index] === 'correct') {
+              ctx.fillStyle = '#27ae60'; // Green
+            } else if (keyStates[index] === 'incorrect') {
+              ctx.fillStyle = '#e74c3c'; // Red
+            } else if (index === currentKeyIndex) {
+              ctx.fillStyle = '#f39c12'; // Orange for current key
+            } else {
+              ctx.fillStyle = '#7f8c8d'; // Grey for pending
+            }
+
+            ctx.font = 'bold 48px "Arial", sans-serif';
+            ctx.fillText(key.toUpperCase(), keyX, sequenceY);
+          });
+
+          // Draw "Press:" text
           ctx.fillStyle = '#FFD700';
           ctx.font = 'bold 32px "Arial", sans-serif';
-            ctx.textAlign = 'center';
-            if (keySequence.length > 0 && currentKeyIndex < keySequence.length) {
-              ctx.fillText(`Press: ${keySequence[currentKeyIndex].toUpperCase()}`, coinPosition.x, sequenceY + 48);
-        }
-        
-            // Draw progress text
-        const progressText = `${currentKeyIndex}/${keySequence.length}`;
-        ctx.fillStyle = '#ecf0f1';
-        ctx.font = '28px "Arial", sans-serif';
-      ctx.textAlign = 'center';
-            ctx.fillText(progressText, coinPosition.x, sequenceY + 78);
+          ctx.textAlign = 'center';
+          if (keySequence.length > 0 && currentKeyIndex < keySequence.length) {
+            ctx.fillText(`Press: ${keySequence[currentKeyIndex].toUpperCase()}`, coinPosition.x, sequenceY + 48);
           }
+
+          // Draw progress text
+          const progressText = `${currentKeyIndex}/${keySequence.length}`;
+          ctx.fillStyle = '#ecf0f1';
+          ctx.font = '28px "Arial", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(progressText, coinPosition.x, sequenceY + 78);
         }
       }
     } else if (gamePhase === 'break') {
@@ -1186,7 +1271,7 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
       ctx.fillText(`Current Score: ${score}`, canvasSize.width / 2, canvasSize.height / 2 + 100);
     }
     }, [timeLeft, score, lastClicked, gamePhase, coinVisible, canvasSize, 
-      showSpeedWarning, showRewardAnimation, keySequence, currentKeyIndex, keyStates, currentEnvironment, 
+      showSpeedWarning, showBarExitWarning, showRewardAnimation, keySequence, currentKeyIndex, keyStates, currentEnvironment, 
       currentRewardValue, rewardAnimationText, gameActive, environmentRound, leftBar, rightBar, coinPosition, coinRadius, barWidth, dashOffset]);
 
   // Handle game completion when last block ends
@@ -1259,18 +1344,31 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     setLastWallPosition(null);
     setCurrentKeytapNumber(1);
     
-    // Get random round duration and key sequence for new block
-    const roundDuration = getRandomRoundDuration();
-    const sequence = getRandomKeySequence();
+    // Check if this is the last block
+    const isLastBlock = getNextBlockIndex(nextBlockIndex) === null;
     
-    setTimeLeft(roundDuration);
-    setKeySequence(sequence);
-    setKeyStates(new Array(sequence.length).fill('pending'));
+    if (isLastBlock) {
+      // Start with reaching-only phase for the last block
+      setIsReachingOnlyPhase(true);
+      setReachingOnlyTimeLeft(GAME_CONFIG.BLOCKS.REACHING_ONLY_DURATION);
+      setTimeLeft(0);
+      setKeySequence([]);
+      setKeyStates([]);
+    } else {
+      // Normal start for middle blocks
+      setIsReachingOnlyPhase(false);
+      const roundDuration = getRandomRoundDuration();
+      const sequence = getRandomKeySequence();
+      
+      setTimeLeft(roundDuration);
+      setKeySequence(sequence);
+      setKeyStates(new Array(sequence.length).fill('pending'));
+      
+      // Set the reward value for the first round of the new block
+      setRoundRewardValue(nextBlockIndex, 1);
+    }
     
-    // Set the reward value for the first round of the new block
-    setRoundRewardValue(nextBlockIndex, 1);
-    
-    console.log('Switched to block:', { nextBlockIndex, nextEnvironment, roundDuration, sequence });
+    console.log('Switched to block:', { nextBlockIndex, nextEnvironment, isLastBlock });
   };
 
   return (

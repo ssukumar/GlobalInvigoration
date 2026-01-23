@@ -7,4 +7,9 @@ export default defineConfig({
   server: {
     port: 3000
   }
+  ,
+  build: {
+    // Enable source maps for easier debugging of runtime errors in production bundles
+    sourcemap: true
+  }
 }) 

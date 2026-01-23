@@ -5,23 +5,24 @@ export const GAME_CONFIG = {
   // ===== GAME STRUCTURE =====
   BLOCKS: {
     POOR: {
-      baseRounds: 5, // Base number of rounds 
+      baseRounds: 30, // Base number of rounds 
       // num_blocks: 2 // Number of blocks of type poor
     },
     RICH: {
-      baseRounds: 5, // Base number of rounds 
+      baseRounds: 30, // Base number of rounds 
       // num_blocks: 2 // Number of blocks of type rich
     },
-    ORDER: ['poor', 'rich', 'rich', 'poor'] // Order of environments
+    ORDER: ['poor', 'rich', 'rich', 'poor', 'poor', 'rich'], // Order of environments
+    REACHING_ONLY_DURATION: 40, // Additional reaching-only time (seconds) added to first and last blocks
   },
 
   // ===== ROUND DURATIONS =====
   ROUND_DURATIONS: {
     REACHING_PHASE: {
-      mean: 20, // Mean duration in seconds
+      mean: 10, // Mean duration in seconds
       standardDeviation: 2, // Standard deviation in seconds
-      min: 15, // Minimum duration (to avoid too short rounds)
-      max: 25  // Maximum duration (to avoid too long rounds)
+      min: 5, // Minimum duration (to avoid too short rounds)
+      max: 15  // Maximum duration (to avoid too long rounds)
     },
     REWARD_CUE_TIME: 3, // Seconds before reward collection when gray circle appears
     WARNING_THRESHOLD: 2 // Seconds remaining when speed warning appears
@@ -29,7 +30,7 @@ export const GAME_CONFIG = {
 
   // ===== REWARD VALUES =====
   REWARDS: {
-    VALUES: [10, 60, 100], // Available reward values (no more 0 reward)
+    VALUES: [10, 60, 100], // Available reward values
     PRACTICE_VALUE: 30, // Reward value for practice mode
     ARRAYS: {
       POOR: [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 60, 60, 60, 60, 60, 60, 60, 60, 60, 100, 100, 100, 100, 100, 100], // 30 rounds for poor environment (50% 10s, 30% 30s, 20% 50s)
@@ -62,15 +63,13 @@ export const GAME_CONFIG = {
 
 // Helper function to calculate total rounds based on base rounds
 export const calculateTotalRounds = (environment) => {
-  const baseRounds = environment === 'poor' ? GAME_CONFIG.BLOCKS.POOR.baseRounds : GAME_CONFIG.BLOCKS.RICH.baseRounds;
-  
-  if (environment === 'poor') {
-    // Poor environment: baseRounds 
-    return baseRounds;
-  } else {
-    // Rich environment: baseRounds 
-    return baseRounds;
-  }
+  // Return the configured baseRounds for the given environment (handles 'poor', 'rich')
+  if (environment === 'poor') return GAME_CONFIG.BLOCKS.POOR.baseRounds;
+  if (environment === 'rich') return GAME_CONFIG.BLOCKS.RICH.baseRounds;
+
+  // Fallback to POOR if environment is unrecognized
+  console.warn(`Unrecognized environment "${environment}" in calculateTotalRounds(), defaulting to POOR`);
+  return GAME_CONFIG.BLOCKS.POOR.baseRounds;
 };
 
 // Helper function to get random round duration with normal distribution

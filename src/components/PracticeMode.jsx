@@ -32,6 +32,10 @@ const PracticeMode = ({ onPracticeComplete }) => {
   const [dashOffset, setDashOffset] = useState(0);
   const prevBarRef = useRef(null);
   const speedWarningTimeout = useRef(null);
+  const barHideTimeoutRef = useRef(null);
+  const barHidingRef = useRef(null);
+  const prematureExitBarRef = useRef(null);
+  const [showBarExitWarning, setShowBarExitWarning] = useState(false);
 
   const totalRounds = 2; // Practice mode has 2 trials
 
@@ -280,26 +284,101 @@ const PracticeMode = ({ onPracticeComplete }) => {
     // Determine which bar cursor is in
     const inLeftBar = x >= leftBar.x && x <= leftBar.x + leftBar.width && y >= leftBar.y && y <= leftBar.y + leftBar.height;
     const inRightBar = x >= rightBar.x && x <= rightBar.x + rightBar.width && y >= rightBar.y && y <= rightBar.y + rightBar.height;
+    const currentBar = inLeftBar ? 'left' : inRightBar ? 'right' : null;
 
-    // Bar visibility logic (Option A)
-    if (inLeftBar && prevBarRef.current !== 'left') {
-      setLeftBarVisible(false);
-      setRightBarVisible(true);
-      prevBarRef.current = 'left';
-      setShowSpeedWarning(false);
-      if (speedWarningTimeout.current) clearTimeout(speedWarningTimeout.current);
-      speedWarningTimeout.current = setTimeout(() => setShowSpeedWarning(true), 2000);
-    } else if (inRightBar && prevBarRef.current !== 'right') {
-      setLeftBarVisible(true);
-      setRightBarVisible(false);
-      prevBarRef.current = 'right';
-      setShowSpeedWarning(false);
-      if (speedWarningTimeout.current) clearTimeout(speedWarningTimeout.current);
-      speedWarningTimeout.current = setTimeout(() => setShowSpeedWarning(true), 2000);
-    } else if (!inLeftBar && !inRightBar && prevBarRef.current !== null) {
-      prevBarRef.current = null;
-      setShowSpeedWarning(false);
-      if (speedWarningTimeout.current) clearTimeout(speedWarningTimeout.current);
+    // Option A behavior with 500ms delay:
+    // - When the cursor enters a bar, that bar disappears after 500ms
+    // - If cursor leaves before 500ms, show warning, freeze opposite bar, and RESET the 500ms timer
+    // - Cursor must return and stay for a fresh 500ms to hide the bar
+    const prevBar = prevBarRef.current;
+    
+    if (currentBar !== prevBar) {
+      // If leaving a bar before hide timeout completes AND bar is still actively hiding, show warning
+      if (prevBar !== null && currentBar === null && barHidingRef.current === prevBar) {
+        setShowBarExitWarning(true);
+        prematureExitBarRef.current = prevBar;
+        // Clear the timeout so the bar won't disappear (must restart on return)
+        if (barHideTimeoutRef.current) {
+          clearTimeout(barHideTimeoutRef.current);
+          barHideTimeoutRef.current = null;
+        }
+        barHidingRef.current = null; // Bar is no longer actively hiding
+        // Warning auto-hides after 2 seconds
+        setTimeout(() => {
+          setShowBarExitWarning(false);
+        }, 2000);
+
+        // Keep current bar ref to prevent further changes
+        prevBarRef.current = currentBar;
+        return;
+      }
+      
+      // If we're returning to the bar that was exited early, restart the timeout
+      if (currentBar === prematureExitBarRef.current) {
+        setShowBarExitWarning(false);
+        // Restart the hide timeout for this bar
+        barHidingRef.current = prematureExitBarRef.current;
+        
+        if (currentBar === 'left') {
+          barHideTimeoutRef.current = setTimeout(() => {
+            setLeftBarVisible(false);
+            prematureExitBarRef.current = null;
+            barHidingRef.current = null;
+          }, 500);
+        } else if (currentBar === 'right') {
+          barHideTimeoutRef.current = setTimeout(() => {
+            setRightBarVisible(false);
+            prematureExitBarRef.current = null;
+            barHidingRef.current = null;
+          }, 500);
+        }
+        prevBarRef.current = currentBar;
+        return;
+      }
+      
+      // If in recovery mode and cursor goes somewhere else, ignore
+      if (prematureExitBarRef.current && currentBar !== prematureExitBarRef.current) {
+        prevBarRef.current = currentBar;
+        return;
+      }
+      
+      // Clear existing timeout if switching bars normally
+      if (barHideTimeoutRef.current) {
+        clearTimeout(barHideTimeoutRef.current);
+      }
+      
+      if (currentBar === 'left') {
+        setRightBarVisible(true);
+        setShowBarExitWarning(false);
+        barHidingRef.current = 'left'; // Mark that left bar is now hiding
+        
+        barHideTimeoutRef.current = setTimeout(() => {
+          setLeftBarVisible(false);
+          barHidingRef.current = null; // Bar is now hidden, no longer in hiding process
+        }, 500);
+
+        setShowSpeedWarning(false);
+        if (speedWarningTimeout.current) clearTimeout(speedWarningTimeout.current);
+        speedWarningTimeout.current = setTimeout(() => setShowSpeedWarning(true), 2000);
+      } else if (currentBar === 'right') {
+        setLeftBarVisible(true);
+        setShowBarExitWarning(false);
+        barHidingRef.current = 'right'; // Mark that right bar is now hiding
+        
+        barHideTimeoutRef.current = setTimeout(() => {
+          setRightBarVisible(false);
+          barHidingRef.current = null; // Bar is now hidden, no longer in hiding process
+        }, 500);
+
+        setShowSpeedWarning(false);
+        if (speedWarningTimeout.current) clearTimeout(speedWarningTimeout.current);
+        speedWarningTimeout.current = setTimeout(() => setShowSpeedWarning(true), 2000);
+      } else if (currentBar === null) {
+        // Moved to neutral - clear the hiding marker
+        barHidingRef.current = null;
+      }
+
+      prevBarRef.current = currentBar;
     }
 
     // Advance dashOffset only when cursor moves toward the visible bar
@@ -334,6 +413,7 @@ const PracticeMode = ({ onPracticeComplete }) => {
   useEffect(() => {
     return () => {
       if (speedWarningTimeout.current) clearTimeout(speedWarningTimeout.current);
+      if (barHideTimeoutRef.current) clearTimeout(barHideTimeoutRef.current);
     };
   }, []);
 
@@ -443,6 +523,14 @@ const PracticeMode = ({ onPracticeComplete }) => {
         ctx.fillText('Move Faster!', canvasSize.width / 2, canvasSize.height - 100);
       }
 
+      // Draw bar exit warning
+      if (showBarExitWarning) {
+        ctx.fillStyle = '#FFA500';
+        ctx.font = 'bold 24px "Orbitron", "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('Return to the bar!', canvasSize.width / 2, canvasSize.height - 100);
+      }
+
       // Draw +50 animation
       if (showPlusFifty) {
         ctx.fillStyle = '#00FF00';
@@ -516,7 +604,7 @@ const PracticeMode = ({ onPracticeComplete }) => {
         ctx.fillText(`+${GAME_CONFIG.REWARDS.PRACTICE_VALUE}`, canvasSize.width / 2, canvasSize.height / 2 - 100);
       }
     }
-  }, [timeLeft, score, gamePhase, coinVisible, canvasSize, showSpeedWarning, showPlusFifty, keySequence, currentKeyIndex, keyStates, cursorPosition, gameActive, leftBarVisible, rightBarVisible]);
+  }, [timeLeft, score, gamePhase, coinVisible, canvasSize, showSpeedWarning, showBarExitWarning, showPlusFifty, keySequence, currentKeyIndex, keyStates, cursorPosition, gameActive, leftBarVisible, rightBarVisible]);
 
   return (
     <div className="game-container">
