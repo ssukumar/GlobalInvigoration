@@ -46,8 +46,8 @@ const PracticeMode = ({ onPracticeComplete }) => {
   const barWidth = canvasSize.width * 0.1;
   const barHeight = canvasSize.height;
 
-  const leftBar = { x: 0, y: 0, width: barWidth, height: barHeight };
-  const rightBar = { x: canvasSize.width - barWidth, y: 0, width: barWidth, height: barHeight };
+  const leftBar = { x: canvasSize.width * 0.05, y: 0, width: barWidth, height: barHeight };
+  const rightBar = { x: canvasSize.width * 0.85, y: 0, width: barWidth, height: barHeight };
 
   // Coin position (centered, mid-screen)
   const coinPosition = { x: canvasSize.width / 2, y: canvasSize.height / 2 - 120 };
@@ -236,7 +236,8 @@ const PracticeMode = ({ onPracticeComplete }) => {
               // Next round
               setCurrentRound(prev => prev + 1);
               setGamePhase('reaching');
-              setTimeLeft(getRandomRoundDuration());
+              // Set specific durations: 45 seconds for round 1, 20 seconds for round 2
+              setTimeLeft(currentRound === 1 ? 45 : 20);
               setCoinVisible(false);
               setLeftBarVisible(true);
               setRightBarVisible(true);
@@ -406,7 +407,7 @@ const PracticeMode = ({ onPracticeComplete }) => {
   useEffect(() => {
     setGameActive(true);
     setGamePhase('reaching');
-    setTimeLeft(getRandomRoundDuration());
+    setTimeLeft(45); // First practice round is 45 seconds
   }, []);
 
   // Cleanup on unmount
@@ -434,7 +435,7 @@ const PracticeMode = ({ onPracticeComplete }) => {
       if (leftBarVisible) {
         ctx.beginPath();
         ctx.rect(leftBar.x, leftBar.y, leftBar.width, leftBar.height);
-        ctx.fillStyle = '#3498db';
+        ctx.fillStyle = prevBarRef.current === 'left' ? '#27ae60' : '#3498db';
         ctx.fill();
         ctx.strokeStyle = '#2980b9';
         ctx.lineWidth = 3;
@@ -445,7 +446,7 @@ const PracticeMode = ({ onPracticeComplete }) => {
       if (rightBarVisible) {
         ctx.beginPath();
         ctx.rect(rightBar.x, rightBar.y, rightBar.width, rightBar.height);
-        ctx.fillStyle = '#3498db';
+        ctx.fillStyle = prevBarRef.current === 'right' ? '#27ae60' : '#3498db';
         ctx.fill();
         ctx.strokeStyle = '#2980b9';
         ctx.lineWidth = 3;

@@ -292,15 +292,15 @@ const Game3 = ({ participantData, participantId, onGameComplete }) => {
   const barWidth = canvasSize.width * 0.1;
   const barHeight = canvasSize.height;
 
-  // Bar positions (left and right edges)
+  // Bar positions (moved closer to center - 20% from edges instead of at edges)
   const leftBar = {
-    x: 0,
+    x: canvasSize.width * 0.05,
     y: 0,
     width: barWidth,
     height: barHeight
   };
   const rightBar = {
-    x: canvasSize.width - barWidth,
+    x: canvasSize.width * 0.85,
     y: 0,
     width: barWidth,
     height: barHeight

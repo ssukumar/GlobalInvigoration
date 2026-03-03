@@ -12,7 +12,8 @@ export const GAME_CONFIG = {
       baseRounds: 30, // Base number of rounds 
       // num_blocks: 2 // Number of blocks of type rich
     },
-    ORDER: ['poor', 'rich', 'rich', 'poor', 'poor', 'rich'], // Order of environments
+    // ORDER: ['poor', 'rich', 'rich', 'poor'], // Order of environments
+    ORDER: ['rich', 'poor', 'poor', 'rich'], // Order of environments
     REACHING_ONLY_DURATION: 40, // Additional reaching-only time (seconds) added to first and last blocks
   },
 

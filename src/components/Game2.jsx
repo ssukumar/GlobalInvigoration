@@ -322,15 +322,15 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
   const barWidth = canvasSize.width * 0.1;
   const barHeight = canvasSize.height;
 
-  // Bar positions (left and right edges)
+  // Bar positions (moved closer to center - 20% from edges instead of at edges)
   const leftBar = {
-    x: 0,
+    x: canvasSize.width * 0.05,
     y: 0,
     width: barWidth,
     height: barHeight
   };
   const rightBar = {
-    x: canvasSize.width - barWidth,
+    x: canvasSize.width * 0.85,
     y: 0,
     width: barWidth,
     height: barHeight
@@ -806,12 +806,13 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
     // Record movement data during reaching phase using synchronized arrays (30 Hz sampling)
     const timestamp = Date.now();
     const timeSinceLastSample = timestamp - lastSampleTime;
-    // Only record data every ~33.3ms (30 Hz)
-    if (timeSinceLastSample >= 33) {
+    // // Only record data every ~16ms (60 Hz)
+    if (timeSinceLastSample >= 10) {
       appendReachingData(x, y, timestamp);
       setLastSampleTime(timestamp);
     }
-
+    // appendReachingData(x, y, timestamp);
+    // setLastSampleTime(timestamp);
     // Bar hover logic (no points, just visual feedback)
     const inLeft = x >= leftBar.x && x <= leftBar.x + leftBar.width && y >= leftBar.y && y <= leftBar.y + leftBar.height;
     const inRight = x >= rightBar.x && x <= rightBar.x + rightBar.width && y >= rightBar.y && y <= rightBar.y + rightBar.height;
