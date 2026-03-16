@@ -1153,13 +1153,13 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
       ctx.textAlign = 'center';
       ctx.fillText(`Score: ${score}`, canvasSize.width / 2, 100);
 
-      // // Draw speed warning if active
-      // if (showSpeedWarning) {
-      //   ctx.fillStyle = '#FF6B6B';
-      //   ctx.font = 'bold 20px "Orbitron", "Courier New", monospace';
-      //   ctx.textAlign = 'center';
-      //   ctx.fillText('Move Faster!', canvasSize.width / 2, canvasSize.height - 100);
-      // }
+      // Draw speed warning if active
+      if (showSpeedWarning) {
+        ctx.fillStyle = '#FF6B6B';
+        ctx.font = 'bold 20px "Orbitron", "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('Move Faster!', canvasSize.width / 2, canvasSize.height - 100);
+      }
 
       // Draw bar exit warning if active
       if (showBarExitWarning) {

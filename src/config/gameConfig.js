@@ -14,7 +14,7 @@ export const GAME_CONFIG = {
     },
     // ORDER: ['poor', 'rich', 'rich', 'poor'], // Order of environments
     ORDER: ['rich', 'poor', 'poor', 'rich'], // Order of environments
-    REACHING_ONLY_DURATION: 40, // Additional reaching-only time (seconds) added to first and last blocks
+    REACHING_ONLY_DURATION: 5, // Additional reaching-only time (seconds) added to first and last blocks
   },
 
   // ===== ROUND DURATIONS =====
@@ -42,7 +42,7 @@ export const GAME_CONFIG = {
   // ===== KEY SEQUENCES =====
   KEYS: {
     VALID_KEYS: ['a', 's', 'd', 'f'], // Valid keys for reward collection
-    SEQUENCE_LENGTH: 10, // Number of keys to press in sequence
+    SEQUENCE_LENGTH: 20, // Number of keys to press in sequence
     PRACTICE_SEQUENCE_LENGTH: 10, // Number of keys for practice mode
     PREDEFINED_SEQUENCES: [
       ['a', 's', 'd', 'f', 'a', 's', 'd', 'f', 'a', 's'], // Sequence 1
