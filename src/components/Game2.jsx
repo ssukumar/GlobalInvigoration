@@ -549,10 +549,10 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
         setLastClicked(null);
 
         // Ensure speed warning is cleared after reward collection
-        setShowSpeedWarning(false);
-        if (speedWarningTimeout.current) {
-          clearTimeout(speedWarningTimeout.current);
-        }
+          setShowSpeedWarning(false);
+          if (speedWarningTimeout.current) {
+            clearTimeout(speedWarningTimeout.current);
+          }
 
         setGamePhase('reaching');
         setCoinVisible(false);
@@ -764,6 +764,14 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
 
   // Handle mouse movement for bar hover detection
   const handleMouseMove = (event) => {
+    // Reset inactivity timer on every mouse move
+    if (speedWarningTimeout.current) {
+    clearTimeout(speedWarningTimeout.current);
+    setShowSpeedWarning(false);
+  }
+  speedWarningTimeout.current = setTimeout(() => {
+  setShowSpeedWarning(true);
+  }, 3000);
     if (!gameActive || gamePhase !== 'reaching') return; // Only track during reaching phase
 
     const canvas = canvasRef.current;
@@ -896,14 +904,8 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
         if (lastClicked !== 'left') {
           setLastClicked('left');
           lastBarSwitchTime.current = Date.now();
-          setShowSpeedWarning(false);
-          if (speedWarningTimeout.current) {
-            clearTimeout(speedWarningTimeout.current);
-          }
-          speedWarningTimeout.current = setTimeout(() => {
-            setShowSpeedWarning(true);
-          }, 2000);
         }
+      
       } else if (currentBar === 'right') {
         setLeftBarVisible(true);
         setShowBarExitWarning(false);
@@ -919,14 +921,8 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
         if (lastClicked !== 'right') {
           setLastClicked('right');
           lastBarSwitchTime.current = Date.now();
-          setShowSpeedWarning(false);
-          if (speedWarningTimeout.current) {
-            clearTimeout(speedWarningTimeout.current);
-          }
-          speedWarningTimeout.current = setTimeout(() => {
-            setShowSpeedWarning(true);
-          }, 2000);
         }
+      
       } else if (currentBar === null) {
         // Moved to neutral - clear the hiding marker
         barHidingRef.current = null;
@@ -1154,12 +1150,12 @@ const Game2 = ({ participantData, participantId, onGameComplete }) => {
       ctx.fillText(`Score: ${score}`, canvasSize.width / 2, 100);
 
       // // Draw speed warning if active
-      // if (showSpeedWarning) {
-      //   ctx.fillStyle = '#FF6B6B';
-      //   ctx.font = 'bold 20px "Orbitron", "Courier New", monospace';
-      //   ctx.textAlign = 'center';
-      //   ctx.fillText('Move Faster!', canvasSize.width / 2, canvasSize.height - 100);
-      // }
+      if (showSpeedWarning) {
+        ctx.fillStyle = '#FF6B6B';
+        ctx.font = 'bold 20px "Orbitron", "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('Make sure to move at a steady pace!', canvasSize.width / 2, canvasSize.height - 100);
+      }
 
       // Draw bar exit warning if active
       if (showBarExitWarning) {

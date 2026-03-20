@@ -14,14 +14,14 @@ export const GAME_CONFIG = {
     },
     // ORDER: ['poor', 'rich', 'rich', 'poor'], // Order of environments
     ORDER: ['rich', 'poor', 'poor', 'rich'], // Order of environments
-    REACHING_ONLY_DURATION: 5, // Additional reaching-only time (seconds) added to first and last blocks
+    REACHING_ONLY_DURATION: 40, // Additional reaching-only time (seconds) added to first and last blocks
   },
 
   // ===== ROUND DURATIONS =====
   ROUND_DURATIONS: {
     REACHING_PHASE: {
       mean: 10, // Mean duration in seconds
-      standardDeviation: 2, // Standard deviation in seconds
+      standardDeviation: 5, // Standard deviation in seconds
       min: 5, // Minimum duration (to avoid too short rounds)
       max: 15  // Maximum duration (to avoid too long rounds)
     },

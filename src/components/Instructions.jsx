@@ -16,7 +16,12 @@ const Instructions = ({ onStart, onPractice, currentPage = 0, setCurrentPage }) 
           <p>
             In this game you will help a character move forward by taking alternating left and right steps.
             To make a step you will swipe your cursor left and right between two bars on the sides of the screen.
-            Occasionally you will be given an opportunity to collect a reward by typing a short key sequence.
+            Occasionally you will be given an opportunity to collect a reward by typing a short key sequence. 
+            
+            Reward amounts(10 - 60 - 100) is rolled randomly and is not determined by how well, how fast, or how long you move. 
+            
+            Participation in this study will last approximately 1 hour, and you will be compensated a base pay of $15.
+            Additional monetary compensation(up to a total compensation of $20) is determined by total points earned at the end of the 3 games.
           </p>
           {/* <div className="phase-overview">
             <div className="phase-item">
