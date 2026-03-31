@@ -4,15 +4,19 @@ import './ConsentForm.css';
 const ConsentForm = ({ onConsent, onDecline }) => {
   return (
     <div className="consent-container">
-      <h1><b><u>Welcome</u></b></h1>
+      <h1><b><u>Welcome to the "Swipe and Type" Study</u></b></h1>
       <h2>but first, we need your consent to proceed...</h2>
       <hr />
       <div className="legal well">
         <p>
-          We would like to invite you to take part in the following study named "Swipe and Type Study"
+         
         </p>
         <p>
-          This will take approximately 50 minutes, and you will be compensated $20 upon completion.
+          This will take approximately 45 minutes<br />
+          <br />
+          You will be compensated a base pay of $15.<br /> 
+          Additional monetary compensation (up to a total compensation of $20) is determined by total points earned.
+          <br />
           <br />
           Please understand that we <em>reserve the right to not compensate entries</em> that fail to follow instructions.
         </p>
