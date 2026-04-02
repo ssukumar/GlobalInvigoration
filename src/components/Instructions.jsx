@@ -17,11 +17,13 @@ const Instructions = ({ onStart, onPractice, currentPage = 0, setCurrentPage }) 
             In this game you will help a character move forward by taking alternating left and right steps.
             To make a step you will swipe your cursor left and right between two bars on the sides of the screen.
             Occasionally you will be given an opportunity to collect a reward by typing a short key sequence. 
-            
+             <br />
+             <br />
             Reward amounts(10 - 60 - 100) is rolled randomly and is not determined by how well, how fast, or how long you move. 
-            
-            Participation in this study will last approximately 1 hour, and you will be compensated a base pay of $15.
-            Additional monetary compensation(up to a total compensation of $20) is determined by total points earned at the end of the 3 games.
+             <br />
+             <br />
+            Participation in this study will last approximately 45 minutes, and you will be compensated a base pay of $15.
+            Additional monetary compensation(up to a total compensation of $20) is determined by total points earned.
           </p>
           {/* <div className="phase-overview">
             <div className="phase-item">
@@ -64,7 +66,7 @@ const Instructions = ({ onStart, onPractice, currentPage = 0, setCurrentPage }) 
           </div> */}
           <div className="screenshot-placeholder" role="img" aria-label="Movement video">
             <video className="instruction-screenshot" controls width="100%">
-              <source src="/videos/movement-demo.mp4" type="video/mp4" />
+              <source src="/videos/Swiping(Left and Right) Video.mp4" type="video/mp4" />
               Your browser does not support the video tag.
             </video>
           </div>
@@ -95,7 +97,7 @@ const Instructions = ({ onStart, onPractice, currentPage = 0, setCurrentPage }) 
           </div> */}
           <div className="screenshot-placeholder" role="img" aria-label="Reward video">
             <video className="instruction-screenshot" controls width="100%">
-              <source src="/videos/reward-demo.mp4" type="video/mp4" />
+              <source src="/videos/Keyword Sequence.mp4" type="video/mp4" />
               Your browser does not support the video tag.
             </video>
           </div>
@@ -110,6 +112,9 @@ const Instructions = ({ onStart, onPractice, currentPage = 0, setCurrentPage }) 
           <p>
             Swipe left and right between the bars to take alternating steps and move forward.
             When a reward appears, type the displayed key sequence exactly to collect it.
+          </p>
+          <p>
+            Once again, compensation is a base pay of $15, with additional monetary compensation (up to a total compensation of $20) determined by total points earned.
           </p>
           <div className="final-reminder">
             <h3>Quick Checklist</h3>

@@ -102,9 +102,8 @@ export const getRandomRoundDuration = () => {
 // Generate a random key sequence of specified length from VALID_KEYS
 // Uses without-replacement sampling: cycles through keys, reshuffling when exhausted.
 // Guarantees no immediate consecutive repeats and balanced key distribution.
-export const getRandomKeySequence = () => {
+export const getRandomKeySequence = (length = GAME_CONFIG.KEYS.SEQUENCE_LENGTH) => {
   const validKeys = GAME_CONFIG.KEYS.VALID_KEYS.slice(); // ['a','s','d','f']
-  const length = GAME_CONFIG.KEYS.SEQUENCE_LENGTH || 10;
   const sequence = [];
   let availableKeys = shuffleArray(validKeys); // Start with shuffled keys
   let keyIndex = 0;

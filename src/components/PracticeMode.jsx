@@ -186,7 +186,7 @@ const PracticeMode = ({ onPracticeComplete }) => {
           if (prev <= 1) {
             setGamePhase('keypress');
             setCoinVisible(true);
-            const sequence = getRandomKeySequence();
+            const sequence = getRandomKeySequence(GAME_CONFIG.KEYS.PRACTICE_SEQUENCE_LENGTH);
             setKeySequence(sequence);
             setCurrentKeyIndex(0);
             setKeyStates(new Array(sequence.length).fill('pending'));
@@ -273,6 +273,13 @@ const PracticeMode = ({ onPracticeComplete }) => {
 
   // Handle mouse movement with dash animation logic
   const handleMouseMove = (event) => {
+    if (speedWarningTimeout.current) {
+     clearTimeout(speedWarningTimeout.current);
+     setShowSpeedWarning(false);
+    }
+     speedWarningTimeout.current = setTimeout(() => {
+     setShowSpeedWarning(true);
+    }, 3000);
     if (!gameActive || gamePhase !== 'reaching') return;
 
     const canvas = canvasRef.current;
@@ -359,8 +366,7 @@ const PracticeMode = ({ onPracticeComplete }) => {
         }, 500);
 
         setShowSpeedWarning(false);
-        if (speedWarningTimeout.current) clearTimeout(speedWarningTimeout.current);
-        speedWarningTimeout.current = setTimeout(() => setShowSpeedWarning(true), 2000);
+        
       } else if (currentBar === 'right') {
         setLeftBarVisible(true);
         setShowBarExitWarning(false);
@@ -372,8 +378,7 @@ const PracticeMode = ({ onPracticeComplete }) => {
         }, 500);
 
         setShowSpeedWarning(false);
-        if (speedWarningTimeout.current) clearTimeout(speedWarningTimeout.current);
-        speedWarningTimeout.current = setTimeout(() => setShowSpeedWarning(true), 2000);
+       
       } else if (currentBar === null) {
         // Moved to neutral - clear the hiding marker
         barHidingRef.current = null;
@@ -521,7 +526,7 @@ const PracticeMode = ({ onPracticeComplete }) => {
         ctx.fillStyle = '#FF6B6B';
         ctx.font = 'bold 20px "Orbitron", "Courier New", monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('Move Faster!', canvasSize.width / 2, canvasSize.height - 100);
+        ctx.fillText('Make sure to move at a steady pace!', canvasSize.width / 2, canvasSize.height - 100);
       }
 
       // Draw bar exit warning
