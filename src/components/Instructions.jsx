@@ -58,7 +58,7 @@ const Instructions = ({ onStart, onPractice, currentPage = 0, setCurrentPage }) 
           <h3>Remember</h3>
           <ul>
             <li>Keep moving back and forth at a steady pace; do not stop or stay on one side for too long.</li>
-            <li>If you slow down too much, a <strong>Move Faster!</strong> warning will appear.</li>
+            <li>If you stop for more than 3 seconds, a <strong>Make sure to move at a steady pace!</strong> warning will appear.</li>
             <li>You have to swipe all the way to the bar to register a step; the bar will disappear once reached.</li>
           </ul>
           {/* <div className="screenshot-placeholder" role="img" aria-label="Instruction screenshot placeholder">
@@ -66,7 +66,7 @@ const Instructions = ({ onStart, onPractice, currentPage = 0, setCurrentPage }) 
           </div> */}
           <div className="screenshot-placeholder" role="img" aria-label="Movement video">
             <video className="instruction-screenshot" controls width="100%">
-              <source src="/videos/Swiping(Left and Right) Video.mp4" type="video/mp4" />
+              <source src="/videos/Swiping Left and Right Video.mp4" type="video/mp4" />
               Your browser does not support the video tag.
             </video>
           </div>

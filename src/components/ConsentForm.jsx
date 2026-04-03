@@ -17,8 +17,6 @@ const ConsentForm = ({ onConsent, onDecline }) => {
           You will be compensated a base pay of $15.<br /> 
           Additional monetary compensation (up to a total compensation of $20) is determined by total points earned.
           <br />
-          <br />
-          Please understand that we <em>reserve the right to not compensate entries</em> that fail to follow instructions.
         </p>
         <div className="consent-form">
           <iframe 
