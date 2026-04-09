@@ -415,6 +415,25 @@ const PracticeMode = ({ onPracticeComplete }) => {
     setTimeLeft(45); // First practice round is 45 seconds
   }, []);
 
+  // Allow exiting practice early (returns to instructions)
+  const handleExitPractice = () => {
+    setGameActive(false);
+    // clear timers
+    if (speedWarningTimeout.current) {
+      clearTimeout(speedWarningTimeout.current);
+      speedWarningTimeout.current = null;
+    }
+    if (barHideTimeoutRef.current) {
+      clearTimeout(barHideTimeoutRef.current);
+      barHideTimeoutRef.current = null;
+    }
+    // mark completed so parent transitions back
+    if (!gameCompletedRef.current) {
+      gameCompletedRef.current = true;
+    }
+    onPracticeComplete();
+  };
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -614,12 +633,36 @@ const PracticeMode = ({ onPracticeComplete }) => {
 
   return (
     <div className="game-container">
+      <button
+        onClick={handleExitPractice}
+        style={{
+          position: 'fixed',
+          top: 16,
+          right: 16,
+          zIndex: 10001,
+          padding: '8px 12px',
+          backgroundColor: '#666',
+          color: 'white',
+          border: 'none',
+          borderRadius: '6px',
+          cursor: 'pointer',
+          fontSize: 14
+        }}
+        aria-label="Quit practice"
+      >
+        Quit
+      </button>
       <div className="canvas-container">
         <canvas
           ref={canvasRef}
           width={canvasSize.width}
           height={canvasSize.height}
           onMouseMove={handleMouseMove}
+          onMouseEnter={handleMouseMove}
+          onMouseLeave={handleMouseMove}
+          onPointerMove={handleMouseMove}
+          onPointerEnter={handleMouseMove}
+          onPointerLeave={handleMouseMove}
           className="game-canvas"
           style={{ width: '100vw', height: '100vh', display: 'block' }}
         />
